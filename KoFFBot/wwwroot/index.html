@@ -450,8 +450,8 @@
                     </div>
                     <div class="stat-box">
                         <div class="stat-label">Трафик</div>
-                        <div class="stat-value" id="trafficLeft">0<span style="font-size:14px; color:var(--text-muted)"> ГБ</span></div>
-                        <div class="stat-sub">из <span id="trafficTotal">0</span> ГБ</div>
+                        <div class="stat-value" id="trafficValue">0 Б</div>
+                        <div class="stat-sub" id="trafficSub">из 0 Б</div>
                         <div class="progress-track"><div class="progress-fill fill-cyan" id="trafficBar" style="width: 0%;"></div></div>
                     </div>
                 </div>
@@ -541,7 +541,6 @@
             setTimeout(() => toast.classList.remove('show'), 4000);
         }
 
-        // ИСПРАВЛЕНИЕ: Теперь поллинг умеет тихо обновлять профиль!
         function startPolling() {
             if (pollingInterval) clearInterval(pollingInterval);
             pollingInterval = setInterval(() => {
@@ -552,16 +551,10 @@
                         const currentUnread = data.unreadCount || 0;
                         if (currentUnread > 0) {
                             document.getElementById('inboxBadge').style.display = 'block';
-
                             if (currentUnread > lastUnreadCount) {
                                 showToast("Новое сообщение от поддержки!");
-
-                                // ТИХОЕ ОБНОВЛЕНИЕ ПРОФИЛЯ (для продлений)
                                 loadProfile(true);
-
-                                if (document.getElementById('tab-inbox').classList.contains('active')) {
-                                    loadInbox();
-                                }
+                                if (document.getElementById('tab-inbox').classList.contains('active')) { loadInbox(); }
                             }
                         } else {
                             document.getElementById('inboxBadge').style.display = 'none';
@@ -632,9 +625,7 @@
                     fetch('/api/webapp/buy', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ TelegramId: userId, TariffName: name })
-                    }).then(() => {
-                        showToast('Заявка отправлена! Ожидайте ответа.');
-                    }).catch(() => { });
+                    }).then(() => { showToast('Заявка отправлена! Ожидайте ответа.'); }).catch(() => { });
                 }
             });
         }
@@ -659,7 +650,16 @@
             }
         }
 
-        // ИСПРАВЛЕНИЕ: Добавлен аргумент isSilent (по умолчанию false)
+        // ИСПРАВЛЕНИЕ: Умная функция конвертации байтов
+        function formatBytesToHTML(bytes) {
+            if (bytes === 0) return '0.0<span style="font-size:14px; color:var(--text-muted)"> МБ</span>';
+            const k = 1024;
+            const sizes = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            const val = parseFloat((bytes / Math.pow(k, i)).toFixed(2));
+            return val + `<span style="font-size:14px; color:var(--text-muted)"> ${sizes[i]}</span>`;
+        }
+
         function loadProfile(isSilent = false) {
             if (userId === 0 && !isSilent) { document.getElementById('loader').style.animation = 'none'; document.getElementById('loader').innerHTML = "⚠️ Откройте через Telegram."; return; }
 
@@ -667,14 +667,10 @@
                 if (!r.ok) throw new Error(r.status === 404 ? "not_found" : "error");
                 return r.json();
             }).then(data => {
-
-                // Если это не тихое обновление, открываем вкладку профиля
                 if (!isSilent) {
                     document.getElementById('loader').style.display = 'none';
                     document.getElementById('bottomNav').style.display = 'flex';
-                    if (!document.querySelector('.tab-content.active')) {
-                        document.getElementById('tab-profile').classList.add('active');
-                    }
+                    if (!document.querySelector('.tab-content.active')) { document.getElementById('tab-profile').classList.add('active'); }
                 }
 
                 document.getElementById('userIdDisplay').innerText = data.telegramId || userId;
@@ -685,10 +681,26 @@
                     document.getElementById('state-has-sub').style.display = 'block';
                     document.getElementById('userName').innerText = data.firstName || "Пользователь";
 
-                    const limit = data.trafficLimit || 0; const used = data.trafficUsed || 0;
-                    document.getElementById('trafficTotal').innerText = (limit / 1073741824).toFixed(1);
-                    document.getElementById('trafficLeft').innerHTML = (Math.max(0, limit - used) / 1073741824).toFixed(1) + '<span style="font-size:14px; color:var(--text-muted)"> ГБ</span>';
-                    document.getElementById('trafficBar').style.width = limit > 0 ? `${Math.min((used / limit) * 100, 100)}%` : '0%';
+                    // ИСПРАВЛЕНИЕ: Умный рендер трафика
+                    const limit = data.trafficLimit || 0;
+                    const used = data.trafficUsed || 0;
+
+                    if (limit === 0) {
+                        // БЕЗЛИМИТ
+                        document.getElementById('trafficValue').innerHTML = formatBytesToHTML(used);
+                        document.getElementById('trafficSub').innerText = '∞ Безлимит';
+                        document.getElementById('trafficBar').style.width = '100%';
+                        document.getElementById('trafficBar').className = "progress-fill fill-cyan";
+                    } else {
+                        // ЛИМИТНЫЙ ТАРИФ
+                        const left = Math.max(0, limit - used);
+                        document.getElementById('trafficValue').innerHTML = formatBytesToHTML(left);
+                        document.getElementById('trafficSub').innerText = `из ${formatBytesToHTML(limit).replace(/<[^>]*>?/gm, '')}`; // Убираем HTML теги для "из 1 ГБ"
+
+                        // Если осталось меньше 10% — красим в красный
+                        document.getElementById('trafficBar').className = left <= (limit * 0.1) ? "progress-fill fill-danger" : "progress-fill fill-cyan";
+                        document.getElementById('trafficBar').style.width = `${Math.min((used / limit) * 100, 100)}%`;
+                    }
 
                     if (data.expiryDate && data.expiryDate !== null) {
                         try {
@@ -699,7 +711,7 @@
                             if (diffDays > 0) {
                                 dText.innerText = diffDays + ' дн.'; tBar.style.width = `${Math.max(0, Math.min((diffDays / 30) * 100, 100))}%`;
                                 if (diffDays <= 3) { dText.style.color = "var(--danger)"; tBar.className = "progress-fill fill-danger"; }
-                                else { dText.style.color = "var(--text-main)"; tBar.className = "progress-fill fill-purple"; } // Возвращаем цвет при продлении
+                                else { dText.style.color = "var(--text-main)"; tBar.className = "progress-fill fill-purple"; }
                             } else { dText.innerText = 'Истек'; dText.style.color = "var(--danger)"; tBar.style.width = '0%'; tBar.className = "progress-fill fill-danger"; }
                         } catch (e) { document.getElementById('daysLeft').innerText = "∞"; }
                     } else { document.getElementById('daysLeft').innerText = "∞"; document.getElementById('expiryDateText').innerText = "Бессрочно"; document.getElementById('timeBar').style.width = '100%'; }
@@ -708,16 +720,9 @@
                     document.getElementById('keyLink').innerText = window.vpnLinkToCopy;
                 } else { document.getElementById('state-has-sub').style.display = 'none'; document.getElementById('state-no-sub').style.display = 'block'; }
 
-                // Запускаем поллинг только при первой загрузке
-                if (!isSilent) {
-                    checkUnread();
-                    startPolling();
-                }
+                if (!isSilent) { checkUnread(); startPolling(); }
             }).catch(e => {
-                if (!isSilent) {
-                    document.getElementById('loader').style.animation = 'none';
-                    document.getElementById('loader').innerHTML = e.message === "not_found" ? "⚠️ Отправьте боту /start" : "❌ Ошибка сервера.";
-                }
+                if (!isSilent) { document.getElementById('loader').style.animation = 'none'; document.getElementById('loader').innerHTML = e.message === "not_found" ? "⚠️ Отправьте боту /start" : "❌ Ошибка сервера."; }
             });
         }
 

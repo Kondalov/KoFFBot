@@ -1,6 +1,10 @@
 ﻿using KoFFBot.Data;
 using KoFFBot.Domain;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace KoFFBot.Services;
 
@@ -27,19 +31,24 @@ public class SubscriptionGenerator
             if (reserveSub == null)
             {
                 _logger.LogWarning("Закончились резервные ключи в пуле!");
-                return (false, null, null, "⏳ Идет пополнение резервных серверов. Повторите попытку через пару минут.");
+                return (false, null, null, "⏳ Нет доступных серверов резерва. Обратитесь к администратору.");
             }
 
             // Бронируем ключ за пользователем
             reserveSub.TelegramId = telegramId;
             reserveSub.Email = email;
-            // Ставим статус PendingUpdate, чтобы панель на ПК поняла: "Ага, временный ключ забрали, надо настроить ему постоянные лимиты!"
+
+            // === ИСПРАВЛЕНИЕ АРХИТЕКТУРЫ ===
+            // Обновляем дату! Тестовый период (например, 3 дня) начинается ИМЕННО СЕЙЧАС.
+            reserveSub.ExpiryDate = DateTime.UtcNow.AddDays(3);
+
+            // Ставим статус PendingUpdate, чтобы панель на ПК забрала этот ключ из пула в активные!
             reserveSub.SyncStatus = SyncStatus.PendingUpdate;
             reserveSub.LastModifiedAt = DateTime.UtcNow;
 
             await _dbContext.SaveChangesAsync(ct);
 
-            _logger.LogInformation($"Выдан резервный ключ (UUID: {reserveSub.Uuid}) для ID: {telegramId}");
+            _logger.LogInformation($"Выдан резервный ключ (UUID: {reserveSub.Uuid}) для ID: {telegramId}. Срок установлен до {reserveSub.ExpiryDate:dd.MM.yyyy}");
             return (true, reserveSub.Uuid, reserveSub.ServerIp, null);
         }
         catch (Exception ex)

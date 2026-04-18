@@ -123,6 +123,37 @@ public static class Program
             return Results.Ok(new { message = $"Синхронизировано {subs.Count} клиентов" });
         });
 
+        // ИСПРАВЛЕНИЕ АРХИТЕКТУРЫ: НОВЫЙ МАРШРУТ ДЛЯ ТРАФИКА
+        app.MapPost("/api/sync/traffic", async (List<TrafficSyncDto> trafficData, BotDbContext db) =>
+        {
+            if (trafficData == null || !trafficData.Any()) return Results.Ok();
+
+            // Вытаскиваем все UUID из пакета для быстрого поиска в БД (оптимизация)
+            var uuids = trafficData.Select(t => t.Uuid).ToList();
+            var dbSubs = await db.VpnSubscriptions.Where(s => uuids.Contains(s.Uuid)).ToListAsync();
+
+            int updatedCount = 0;
+            foreach (var incoming in trafficData)
+            {
+                var sub = dbSubs.FirstOrDefault(s => s.Uuid == incoming.Uuid);
+                if (sub != null)
+                {
+                    // Обновляем лимиты и текущий расход
+                    sub.TrafficLimitBytes = incoming.TrafficLimitBytes;
+                    sub.TrafficUsedBytes = incoming.TrafficUsedBytes;
+                    updatedCount++;
+                }
+            }
+
+            if (updatedCount > 0)
+            {
+                await db.SaveChangesAsync();
+                BotLogger.Log("SYNC-TRAFFIC", $"Успешно обновлен трафик для {updatedCount} юзеров.");
+            }
+
+            return Results.Ok();
+        });
+
         app.MapPost("/api/templates", async (ServerTemplate template, BotDbContext db) =>
         {
             var existing = await db.ServerTemplates.FirstOrDefaultAsync(t => t.ServerIp == template.ServerIp);
@@ -173,7 +204,7 @@ public static class Program
                 return Results.NotFound("Пользователь не найден");
             }
 
-            BotLogger.Log("WEBAPP-API", $"[GET /profile] Успех. Отдаем профиль {tgId}. Срок: {(sub?.ExpiryDate.HasValue == true ? sub.ExpiryDate.Value.ToString("dd.MM.yyyy") : "Нет")}");
+            BotLogger.Log("WEBAPP-API", $"[GET /profile] Успех. Отдаем профиль {tgId}. Срок: {(sub?.ExpiryDate.HasValue == true ? sub.ExpiryDate.Value.ToString("dd.MM.yyyy") : "Нет")}. Лимит: {sub?.TrafficLimitBytes}, Использовано: {sub?.TrafficUsedBytes}");
 
             return Results.Ok(new
             {
@@ -217,8 +248,6 @@ public static class Program
             return Results.Ok(new { UnreadCount = count });
         });
 
-        app.MapGet("/api/webapp/inbox/unread", async (long tgId, BotDbContext db) => Results.Ok(new { UnreadCount = await db.SupportMessages.CountAsync(m => m.TelegramId == tgId && m.IsFromAdmin && !m.IsRead) }));
-
         app.MapPost("/api/webapp/buy", async (BuyRequest req, BotDbContext db, ITelegramBotClient bot) =>
         {
             BotLogger.Log("WEBAPP", $"Запрос на покупку: {req.TariffName} от {req.TelegramId}");
@@ -235,7 +264,6 @@ public static class Program
                     new[] { InlineKeyboardButton.WithCallbackData("💳 Мои реквизиты", $"req_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("🙈 Скрыть", $"hide_{req.TelegramId}") }
                 });
 
-                // ИСПРАВЛЕНИЕ: Используем HTML и экранируем спецсимволы в имени
                 string safeName = System.Net.WebUtility.HtmlEncode(user.FirstName ?? "Без имени");
                 string adminText = $"🛒 <b>ЗАЯВКА НА ТАРИФ</b>\nОт: {safeName}\nID: <code>{req.TelegramId}</code>\nТариф: <b>{req.TariffName}</b>";
 
@@ -297,3 +325,11 @@ public class ReserveCountDto { public int ReserveCount { get; set; } }
 public class ReserveKeyDto { public string Uuid { get; set; } = ""; public string ServerIp { get; set; } = ""; public long TrafficLimitBytes { get; set; } }
 public class BuyRequest { public long TelegramId { get; set; } public string TariffName { get; set; } = ""; }
 public class UserMessageRequest { public long TelegramId { get; set; } public string Text { get; set; } = ""; }
+
+// НОВЫЙ КЛАСС: Для приема трафика от Панели
+public class TrafficSyncDto
+{
+    public string Uuid { get; set; } = "";
+    public long TrafficUsedBytes { get; set; }
+    public long TrafficLimitBytes { get; set; }
+}
