@@ -9,15 +9,20 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot;
+using Telegram.Bot.Types.ReplyMarkups;
 using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Collections.Concurrent;
 
 namespace KoFFBot;
 
 public static class Program
 {
+    private static readonly ConcurrentDictionary<long, DateTime> _spamFilter = new();
+
     public static void Main(string[] args)
     {
         BotLogger.Log("SYSTEM", "============= ЗАПУСК KoFFBot =============");
@@ -25,6 +30,9 @@ public static class Program
         Env.Load();
         string? botToken = Environment.GetEnvironmentVariable("BOT_TOKEN")?.Trim('"', '\'', ' ');
         string? apiSecret = Environment.GetEnvironmentVariable("API_SECRET")?.Trim('"', '\'', ' ');
+        string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
+
+        BotLogger.Log("SYSTEM", $"Настройки загружены. Admin ID: '{adminIdStr}'");
 
         if (string.IsNullOrWhiteSpace(botToken) || string.IsNullOrWhiteSpace(apiSecret))
         {
@@ -33,111 +41,77 @@ public static class Program
         }
 
         var builder = WebApplication.CreateBuilder(args);
-
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole();
-        builder.Logging.SetMinimumLevel(LogLevel.Trace); // Trace - это самый глубокий уровень из возможных
+        builder.Logging.SetMinimumLevel(LogLevel.Trace);
 
-        // Включаем встроенный шпион ASP.NET Core (пишет все заголовки и пути)
-        builder.Services.AddHttpLogging(logging =>
-        {
-            logging.LoggingFields = Microsoft.AspNetCore.HttpLogging.HttpLoggingFields.All;
-        });
+        builder.WebHost.ConfigureKestrel(serverOptions => { serverOptions.ListenAnyIP(5000); });
+        builder.Services.AddCors(options => { options.AddPolicy("AllowWebApp", policy => policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()); });
 
-        // Настройка Kestrel
-        builder.WebHost.ConfigureKestrel(serverOptions =>
-        {
-            serverOptions.ListenAnyIP(5000);
-        });
-
-        builder.Services.AddCors(options =>
-        {
-            options.AddPolicy("AllowWebApp", policy => policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
-        });
-
-        // 4. Подключение БД SQLite
         string dbPath = Path.Combine(AppContext.BaseDirectory, "koffbot_data.db");
         builder.Services.AddDbContext<BotDbContext>(options => options.UseSqlite($"Data Source={dbPath}"));
 
-        // 5. СЕРВИСЫ БОТА
         builder.Services.AddSingleton<ITelegramBotClient>(sp => new TelegramBotClient(botToken));
         builder.Services.AddTransient<SubscriptionGenerator>();
-        builder.Services.AddScoped<UpdateHandler>();
+        builder.Services.AddSingleton<UpdateHandler>();
         builder.Services.AddHostedService<TelegramBotWorker>();
 
         var app = builder.Build();
-        app.UseHttpLogging();
 
-        // 6. Инициализация БД
         using (var scope = app.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<BotDbContext>();
             db.Database.EnsureCreated();
             db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
-
-            // ДОБАВЛЯЕМ ЭТО: Защита от пустой базы данных серверов
-            /*if (!db.ServerTemplates.Any())
-            {
-                db.ServerTemplates.Add(new ServerTemplate { ServerIp = "45.132.89.12", CoreType = "V2Ray", InboundsConfigJson = "{}" });
-                db.SaveChanges();
-                BotLogger.Log("SYSTEM", "Создан тестовый сервер для выдачи ключей!");
-            }*/
         }
 
-        // === ТОТАЛЬНАЯ ПРОСЛУШКА ВСЕХ ЗАПРОСОВ (HTTP-SPY) ===
+        // === ТОТАЛЬНАЯ ПРОСЛУШКА И СБОР ОШИБОК (DEEP TRACE) ===
         app.Use(async (context, next) =>
         {
-            string ip = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
-            BotLogger.Log("HTTP-SPY", $"[ВХОДЯЩИЙ ЗАПРОС] {context.Request.Method} {context.Request.Host}{context.Request.Path}");
-
+            BotLogger.Log("HTTP-SPY", $"[ВХОДЯЩИЙ] {context.Request.Method} {context.Request.Path}");
             try
             {
                 await next(context);
-                BotLogger.Log("HTTP-SPY", $"[ОТВЕТ] Статус: {context.Response.StatusCode} | Путь: {context.Request.Path}");
+                if (context.Response.StatusCode >= 400 && context.Response.StatusCode != 401)
+                {
+                    BotLogger.Log("HTTP-SPY", $"[ОТВЕТ С ОШИБКОЙ] Статус: {context.Response.StatusCode} | Путь: {context.Request.Path}");
+                }
             }
             catch (Exception ex)
             {
-                BotLogger.Log("HTTP-SPY", $"[СБОЙ СЕРВЕРА] {ex.Message}");
-                throw;
+                BotLogger.Log("HTTP-SPY-CRITICAL", $"[КРИТИЧЕСКОЕ ПАДЕНИЕ]\nПУТЬ: {context.Request.Path}\nОШИБКА: {ex.Message}\n{ex.StackTrace}");
+                context.Response.StatusCode = 500;
+                await context.Response.WriteAsync($"server_error: {ex.Message}");
             }
         });
 
-        // Включаем CORS и раздачу статического сайта (Mini App)
         app.UseCors("AllowWebApp");
         app.UseDefaultFiles();
         app.UseStaticFiles();
 
-        // Middleware: Умная защита API-запросов (Охранник)
         app.Use(async (context, next) =>
         {
             var path = context.Request.Path.Value?.ToLower() ?? "";
-
-            // ПРОПУСКАЕМ БЕЗ ПАРОЛЯ: Статический сайт (Mini App)
             if (path.StartsWith("/api/webapp") || path.EndsWith(".html") || path.EndsWith(".js") || path.EndsWith(".css") || path == "/")
             {
                 await next(context);
                 return;
             }
 
-            // ИСПРАВЛЕНИЕ: Жесткая очистка ключей от скрытых символов Windows (CRLF), которые ломают авторизацию
             string safeSecret = apiSecret?.Trim('\r', '\n', ' ') ?? "";
-
             if (!context.Request.Headers.TryGetValue("X-API-KEY", out var extractedApiKey) || extractedApiKey.ToString().Trim('\r', '\n', ' ') != safeSecret)
             {
-                context.Response.StatusCode = 401; // Unauthorized
-                await context.Response.WriteAsync("Доступ запрещен. Неверный X-API-KEY.");
+                context.Response.StatusCode = 401;
+                await context.Response.WriteAsync("Доступ запрещен.");
                 return;
             }
-
             await next(context);
         });
 
-        // === ENDPOINTS (API ДЛЯ ПАНЕЛИ) ===
+        // === ENDPOINTS ПАНЕЛИ ===
         app.MapGet("/api/sync/pending", async (BotDbContext db) =>
         {
-            var pending = await db.VpnSubscriptions
-                .Where(s => s.SyncStatus == SyncStatus.PendingAdd || s.SyncStatus == SyncStatus.PendingUpdate)
-                .ToListAsync();
+            var pending = await db.VpnSubscriptions.Where(s => s.SyncStatus == SyncStatus.PendingAdd || s.SyncStatus == SyncStatus.PendingUpdate).ToListAsync();
             return Results.Ok(pending);
         });
 
@@ -152,14 +126,10 @@ public static class Program
         app.MapPost("/api/templates", async (ServerTemplate template, BotDbContext db) =>
         {
             var existing = await db.ServerTemplates.FirstOrDefaultAsync(t => t.ServerIp == template.ServerIp);
-            if (existing != null)
-            {
-                existing.CoreType = template.CoreType;
-                existing.InboundsConfigJson = template.InboundsConfigJson;
-            }
+            if (existing != null) { existing.CoreType = template.CoreType; existing.InboundsConfigJson = template.InboundsConfigJson; }
             else db.ServerTemplates.Add(template);
             await db.SaveChangesAsync();
-            return Results.Ok(new { message = "Шаблон обновлен!" });
+            return Results.Ok();
         });
 
         app.MapPost("/api/legacy/sync", async (List<LegacyUserDto> legacyUsers, BotDbContext db) =>
@@ -167,74 +137,43 @@ public static class Program
             foreach (var user in legacyUsers)
             {
                 var existing = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.Uuid == user.Uuid);
-                if (existing == null)
-                {
-                    db.VpnSubscriptions.Add(new VpnSubscription
-                    {
-                        Uuid = user.Uuid,
-                        Email = user.Email,
-                        ServerIp = user.ServerIp,
-                        TrafficLimitBytes = user.TrafficLimitBytes,
-                        IsActive = true,
-                        SyncStatus = SyncStatus.Synced,
-                        TelegramId = 0
-                    });
-                }
+                if (existing == null) db.VpnSubscriptions.Add(new VpnSubscription { Uuid = user.Uuid, Email = user.Email, ServerIp = user.ServerIp, TrafficLimitBytes = user.TrafficLimitBytes, IsActive = true, SyncStatus = SyncStatus.Synced, TelegramId = 0 });
             }
             await db.SaveChangesAsync();
             return Results.Ok();
         });
 
-        app.MapGet("/api/stats", async (BotDbContext db) =>
-        {
-            try { return Results.Ok(new { TotalUsers = await db.TelegramUsers.CountAsync() }); }
-            catch (Exception ex) { return Results.Problem(ex.Message); }
-        });
+        app.MapGet("/api/stats", async (BotDbContext db) => Results.Ok(new { TotalUsers = await db.TelegramUsers.CountAsync() }));
 
-        // === ПОПОЛНЕНИЕ РЕЗЕРВА (ОТ ПАНЕЛИ НА ПК) ===
         app.MapPost("/api/sync/pool", async (List<ReserveKeyDto> keys, BotDbContext db) =>
         {
-            // ИСПРАВЛЕНИЕ: Удаляем ТОЛЬКО старые резервы, не трогая настоящих Legacy-юзеров!
-            var ghostKeys = await db.VpnSubscriptions
-                .Where(s => s.TelegramId == 0 && s.Email.StartsWith("reserve_"))
-                .ToListAsync();
+            var ghostKeys = await db.VpnSubscriptions.Where(s => s.TelegramId == 0 && s.Email.StartsWith("reserve_")).ToListAsync();
             db.VpnSubscriptions.RemoveRange(ghostKeys);
-
             int added = 0;
             foreach (var k in keys)
             {
-                db.VpnSubscriptions.Add(new VpnSubscription
-                {
-                    Uuid = k.Uuid,
-                    TelegramId = 0,
-                    Email = $"reserve_{k.Uuid.Substring(0, 5)}",
-                    ServerIp = k.ServerIp,
-                    TrafficLimitBytes = k.TrafficLimitBytes,
-                    TrafficUsedBytes = 0,
-                    IsActive = true,
-                    MaxDevices = 2,
-                    ExpiryDate = DateTime.UtcNow.AddDays(3),
-                    SyncStatus = SyncStatus.Synced,
-                    LastModifiedAt = DateTime.UtcNow
-                });
+                db.VpnSubscriptions.Add(new VpnSubscription { Uuid = k.Uuid, TelegramId = 0, Email = $"reserve_{k.Uuid.Substring(0, 5)}", ServerIp = k.ServerIp, TrafficLimitBytes = k.TrafficLimitBytes, TrafficUsedBytes = 0, IsActive = true, MaxDevices = 2, ExpiryDate = DateTime.UtcNow.AddDays(3), SyncStatus = SyncStatus.Synced, LastModifiedAt = DateTime.UtcNow });
                 added++;
             }
             await db.SaveChangesAsync();
-            return Results.Ok(new { message = $"Синхронизировано {added} ключей резерва" });
+            return Results.Ok();
         });
 
-        app.MapGet("/api/sync/pool/count", async (BotDbContext db) =>
-        {
-            int count = await db.VpnSubscriptions.CountAsync(s => s.TelegramId == 0 && s.Email.StartsWith("reserve_") && s.IsActive);
-            return Results.Ok(new { ReserveCount = count });
-        });
+        app.MapGet("/api/sync/pool/count", async (BotDbContext db) => Results.Ok(new { ReserveCount = await db.VpnSubscriptions.CountAsync(s => s.TelegramId == 0 && s.Email.StartsWith("reserve_") && s.IsActive) }));
 
-        // === ENDPOINT ДЛЯ TELEGRAM MINI APP ===
+        // === ENDPOINTS WEB APP ===
         app.MapGet("/api/webapp/profile", async (long tgId, BotDbContext db) =>
         {
+            BotLogger.Log("WEBAPP-API", $"[GET /profile] Запрос данных профиля для ID: {tgId}");
             var user = await db.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == tgId);
             var sub = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.TelegramId == tgId && s.IsActive);
-            if (user == null) return Results.NotFound("Пользователь не найден");
+            if (user == null)
+            {
+                BotLogger.Log("WEBAPP-API", $"[GET /profile] ОТКАЗ. Пользователь {tgId} не найден в БД.");
+                return Results.NotFound("Пользователь не найден");
+            }
+
+            BotLogger.Log("WEBAPP-API", $"[GET /profile] Успех. Отдаем профиль {tgId}. Срок: {(sub?.ExpiryDate.HasValue == true ? sub.ExpiryDate.Value.ToString("dd.MM.yyyy") : "Нет")}");
 
             return Results.Ok(new
             {
@@ -253,119 +192,108 @@ public static class Program
         app.MapPost("/api/webapp/generate", async (WebAppActionRequest req, BotDbContext db, SubscriptionGenerator generator) =>
         {
             var user = await db.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == req.TelegramId);
-            if (user == null) return Results.BadRequest("Пользователь не найден.");
-
+            if (user == null) return Results.BadRequest();
             var existingSub = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.TelegramId == req.TelegramId && s.IsActive);
             if (existingSub != null) return Results.Ok();
-
+            int reserveCount = await db.VpnSubscriptions.CountAsync(s => s.TelegramId == 0 && s.IsActive);
+            if (reserveCount == 0) return Results.Problem("Нет резервных серверов.");
             var (success, uuid, serverIp, err) = await generator.GenerateNewSubscriptionAsync(req.TelegramId, $"tg_{req.TelegramId}", CancellationToken.None);
-            if (!success) return Results.Problem($"Ошибка генерации: {err}");
-
+            if (!success) return Results.Problem(err);
             return Results.Ok();
         });
 
-        // ВОЗВРАЩЕН ЭНДПОИНТ ДЛЯ КНОПКИ ПРОДЛЕНИЯ (Ты его случайно удалил ранее)
-        app.MapPost("/api/webapp/action", async (WebAppActionRequest req, ITelegramBotClient bot) =>
+        app.MapGet("/api/webapp/inbox", async (long tgId, BotDbContext db) =>
         {
-            if (req.Action == "renew")
-            {
-                await bot.SendMessage(chatId: req.TelegramId, text: "💳 *Продление подписки*\n\nСтоимость продления на 30 дней: 150 руб.\nВыберите способ оплаты:", parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown);
-            }
-            return Results.Ok();
+            var msgs = await db.SupportMessages.Where(m => m.TelegramId == tgId).OrderBy(m => m.CreatedAt).ToListAsync();
+            var unread = msgs.Where(m => m.IsFromAdmin && !m.IsRead).ToList();
+            foreach (var u in unread) u.IsRead = true;
+            if (unread.Any()) await db.SaveChangesAsync();
+            return Results.Ok(msgs.Select(m => new { m.Id, m.Text, m.IsFromAdmin, CreatedAt = m.CreatedAt.ToString("HH:mm dd.MM") }));
         });
 
-        BotLogger.Log("SYSTEM", "KoFFBot: Демон Telegram и защищенный REST API запущены на порту 5000.");
-        app.Run(); // Бесконечный цикл сервера
+        app.MapGet("/api/webapp/inbox/unread", async (long tgId, BotDbContext db) => {
+            int count = await db.SupportMessages.CountAsync(m => m.TelegramId == tgId && m.IsFromAdmin && !m.IsRead);
+            if (count > 0) BotLogger.Log("WEBAPP-API", $"[POLLING] У юзера {tgId} найдено {count} непрочитанных сообщений.");
+            return Results.Ok(new { UnreadCount = count });
+        });
 
-        BotLogger.Log("SYSTEM", "KoFFBot: Демон Telegram и защищенный REST API запущены на порту 5000.");
-        app.MapPost("/api/webapp/generate", async (WebAppActionRequest req, BotDbContext db, SubscriptionGenerator generator) =>
+        app.MapGet("/api/webapp/inbox/unread", async (long tgId, BotDbContext db) => Results.Ok(new { UnreadCount = await db.SupportMessages.CountAsync(m => m.TelegramId == tgId && m.IsFromAdmin && !m.IsRead) }));
+
+        app.MapPost("/api/webapp/buy", async (BuyRequest req, BotDbContext db, ITelegramBotClient bot) =>
         {
+            BotLogger.Log("WEBAPP", $"Запрос на покупку: {req.TariffName} от {req.TelegramId}");
             var user = await db.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == req.TelegramId);
-            if (user == null) return Results.BadRequest("Пользователь не найден.");
+            if (user == null) return Results.BadRequest();
 
-            // Проверяем, нет ли уже активной подписки
-            var existingSub = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.TelegramId == req.TelegramId && s.IsActive);
-            if (existingSub != null) return Results.Ok(); // Уже есть
+            db.SupportMessages.Add(new SupportMessage { TelegramId = req.TelegramId, Text = $"🛒 Заявка отправлена: {req.TariffName}\nОжидайте ответа администратора с реквизитами.", IsFromAdmin = false, IsRead = true, CreatedAt = DateTime.UtcNow });
+            await db.SaveChangesAsync();
 
-            // Генерируем ключ
-            var (success, uuid, serverIp, err) = await generator.GenerateNewSubscriptionAsync(req.TelegramId, $"tg_{req.TelegramId}", CancellationToken.None);
-            if (!success) return Results.Problem($"Ошибка генерации: {err}");
+            if (long.TryParse(adminIdStr, out long adminId))
+            {
+                var kb = new InlineKeyboardMarkup(new[] {
+                    new[] { InlineKeyboardButton.WithCallbackData("↩️ Ответить", $"reply_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("💰 Продлить", $"renew_{req.TelegramId}") },
+                    new[] { InlineKeyboardButton.WithCallbackData("💳 Мои реквизиты", $"req_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("🙈 Скрыть", $"hide_{req.TelegramId}") }
+                });
 
+                // ИСПРАВЛЕНИЕ: Используем HTML и экранируем спецсимволы в имени
+                string safeName = System.Net.WebUtility.HtmlEncode(user.FirstName ?? "Без имени");
+                string adminText = $"🛒 <b>ЗАЯВКА НА ТАРИФ</b>\nОт: {safeName}\nID: <code>{req.TelegramId}</code>\nТариф: <b>{req.TariffName}</b>";
+
+                try
+                {
+                    await bot.SendMessage(chatId: adminId, text: adminText, parseMode: Telegram.Bot.Types.Enums.ParseMode.Html, replyMarkup: kb);
+                    BotLogger.Log("WEBAPP", "Заявка успешно отправлена админу.");
+                }
+                catch (Exception ex) { BotLogger.Log("WEBAPP-ERROR", $"Не удалось отправить заявку админу: {ex.Message}"); }
+            }
             return Results.Ok();
         });
 
-        // === ПОПОЛНЕНИЕ РЕЗЕРВА (ОТ ПАНЕЛИ НА ПК) ===
-        app.MapPost("/api/sync/pool", async (List<ReserveKeyDto> keys, BotDbContext db) =>
+        app.MapPost("/api/webapp/send_message", async (UserMessageRequest req, BotDbContext db, ITelegramBotClient bot) =>
         {
-            // 1. ЖЕСТКАЯ ЗАЧИСТКА: Удаляем все старые призрачные ключи (TelegramId == 0),
-            // чтобы бот не выдавал ссылки, которых физически нет на сервере.
-            var ghostKeys = await db.VpnSubscriptions.Where(s => s.TelegramId == 0).ToListAsync();
-            db.VpnSubscriptions.RemoveRange(ghostKeys);
+            BotLogger.Log("WEBAPP", $"Новое сообщение от {req.TelegramId}");
+            var user = await db.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == req.TelegramId);
+            if (user == null || string.IsNullOrWhiteSpace(req.Text)) return Results.BadRequest();
+            if (req.Text.Length > 500) return Results.BadRequest("Слишком длинное сообщение.");
 
-            // 2. Добавляем свежий резерв от Панели
-            int added = 0;
-            foreach (var k in keys)
-            {
-                db.VpnSubscriptions.Add(new VpnSubscription
-                {
-                    Uuid = k.Uuid,
-                    TelegramId = 0, // 0 означает, что это СВОБОДНЫЙ РЕЗЕРВ
-                    Email = $"reserve_{k.Uuid.Substring(0, 5)}",
-                    ServerIp = k.ServerIp,
-                    TrafficLimitBytes = k.TrafficLimitBytes,
-                    TrafficUsedBytes = 0,
-                    IsActive = true,
-                    MaxDevices = 2,
-                    ExpiryDate = DateTime.UtcNow.AddDays(3), // Гостевой доступ на 3 дня
-                    SyncStatus = SyncStatus.Synced,
-                    LastModifiedAt = DateTime.UtcNow
-                });
-                added++;
-            }
+            if (_spamFilter.TryGetValue(req.TelegramId, out DateTime lastMsg) && (DateTime.UtcNow - lastMsg).TotalSeconds < 10)
+                return Results.BadRequest("Пожалуйста, подождите 10 секунд перед отправкой следующего сообщения.");
+
+            _spamFilter[req.TelegramId] = DateTime.UtcNow;
+
+            db.SupportMessages.Add(new SupportMessage { TelegramId = req.TelegramId, Text = req.Text, IsFromAdmin = false, IsRead = true, CreatedAt = DateTime.UtcNow });
             await db.SaveChangesAsync();
-            return Results.Ok(new { message = $"Синхронизировано {added} ключей резерва" });
+
+            if (long.TryParse(adminIdStr, out long adminId))
+            {
+                var kb = new InlineKeyboardMarkup(new[] {
+                    new[] { InlineKeyboardButton.WithCallbackData("↩️ Ответить", $"reply_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("💰 Продлить", $"renew_{req.TelegramId}") },
+                    new[] { InlineKeyboardButton.WithCallbackData("💳 Мои реквизиты", $"req_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("🙈 Скрыть", $"hide_{req.TelegramId}") }
+                });
+
+                string safeName = System.Net.WebUtility.HtmlEncode(user.FirstName ?? "Без имени");
+                string safeText = System.Net.WebUtility.HtmlEncode(req.Text);
+                string adminText = $"💬 <b>НОВОЕ СООБЩЕНИЕ</b>\nОт: {safeName}\nID: <code>{req.TelegramId}</code>\n\nТекст: {safeText}";
+
+                try
+                {
+                    await bot.SendMessage(chatId: adminId, text: adminText, parseMode: Telegram.Bot.Types.Enums.ParseMode.Html, replyMarkup: kb);
+                    BotLogger.Log("WEBAPP", "Сообщение успешно отправлено админу.");
+                }
+                catch (Exception ex) { BotLogger.Log("WEBAPP-ERROR", $"Не удалось отправить сообщение админу: {ex.Message}"); }
+            }
+            return Results.Ok();
         });
 
-        app.MapGet("/api/sync/pending", async (BotDbContext db) =>
-        {
-            // ИСПРАВЛЕНИЕ: Отдаем панели не только новые заказы, но и тех, кто забрал резервный ключ (PendingUpdate)
-            var pending = await db.VpnSubscriptions
-                .Where(s => s.SyncStatus == SyncStatus.PendingAdd || s.SyncStatus == SyncStatus.PendingUpdate)
-                .ToListAsync();
-            return Results.Ok(pending);
-        });
-
-        BotLogger.Log("SYSTEM", "KoFFBot: Демон Telegram и защищенный REST API запущены на порту 5000.");
-        app.Run(); // Бесконечный цикл сервера
-    }
-
-    // === КЛАССЫ DTO ===
-    public class LegacyUserDto
-    {
-        public string Uuid { get; set; } = "";
-        public string Email { get; set; } = "";
-        public string ServerIp { get; set; } = "";
-        public long TrafficLimitBytes { get; set; }
-        public class ReserveCountDto { public int ReserveCount { get; set; } }
-        public class ReserveKeyDto { public string Uuid { get; set; } = ""; public string ServerIp { get; set; } = ""; public long TrafficLimitBytes { get; set; } }
-    }
-
-    public class CommitRequestDto
-    {
-        public List<string> Uuids { get; set; } = new();
-    }
-
-    public class WebAppActionRequest
-    {
-        public long TelegramId { get; set; }
-        public string Action { get; set; } = "";
-    }
-
-    public class ReserveKeyDto
-    {
-        public string Uuid { get; set; } = "";
-        public string ServerIp { get; set; } = "";
-        public long TrafficLimitBytes { get; set; }
+        BotLogger.Log("SYSTEM", "KoFFBot: Успешный запуск.");
+        app.Run();
     }
 }
 
+public class LegacyUserDto { public string Uuid { get; set; } = ""; public string Email { get; set; } = ""; public string ServerIp { get; set; } = ""; public long TrafficLimitBytes { get; set; } }
+public class CommitRequestDto { public List<string> Uuids { get; set; } = new(); }
+public class WebAppActionRequest { public long TelegramId { get; set; } public string Action { get; set; } = ""; }
+public class ReserveCountDto { public int ReserveCount { get; set; } }
+public class ReserveKeyDto { public string Uuid { get; set; } = ""; public string ServerIp { get; set; } = ""; public long TrafficLimitBytes { get; set; } }
+public class BuyRequest { public long TelegramId { get; set; } public string TariffName { get; set; } = ""; }
+public class UserMessageRequest { public long TelegramId { get; set; } public string Text { get; set; } = ""; }

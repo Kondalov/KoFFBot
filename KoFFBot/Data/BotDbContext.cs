@@ -9,6 +9,10 @@ public class BotDbContext : DbContext
     public DbSet<VpnSubscription> VpnSubscriptions { get; set; } = null!;
     public DbSet<ServerTemplate> ServerTemplates { get; set; } = null!;
 
+    // Новые таблицы
+    public DbSet<SupportMessage> SupportMessages { get; set; } = null!;
+    public DbSet<Referral> Referrals { get; set; } = null!;
+
     public BotDbContext(DbContextOptions<BotDbContext> options) : base(options)
     {
     }
@@ -23,5 +27,9 @@ public class BotDbContext : DbContext
 
         modelBuilder.Entity<VpnSubscription>()
             .HasIndex(s => s.SyncStatus);
+
+        // Индекс для чатов (чтобы быстро грузить Inbox юзера)
+        modelBuilder.Entity<SupportMessage>()
+            .HasIndex(m => m.TelegramId);
     }
 }

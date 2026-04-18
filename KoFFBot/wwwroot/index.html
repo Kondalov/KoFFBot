@@ -7,35 +7,36 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
-            --accent: #00f2ff;
-            --bg: #111;
-            --card-bg: rgba(255,255,255,0.05);
+            --bg-color: #0f0f13;
+            --card-bg: rgba(255, 255, 255, 0.04);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --accent-cyan: #00f2ff;
+            --accent-purple: #bd93f9;
+            --text-main: #ffffff;
+            --text-muted: #8b8b93;
+            --danger: #ff4444;
+            --success: #00ff88;
+        }
+
+        * {
+            box-sizing: border-box;
         }
 
         body {
             margin: 0;
             padding: 0;
-            font-family: -apple-system, sans-serif;
-            background: var(--bg);
-            color: #fff;
-            padding-bottom: 70px;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-main);
+            padding-bottom: 90px;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
         }
-
-        /* Табы и контент */
-        .tab-content {
-            display: none;
-            padding: 20px;
-            animation: fadeIn 0.3s ease;
-        }
-
-            .tab-content.active {
-                display: block;
-            }
 
         @keyframes fadeIn {
             from {
                 opacity: 0;
-                transform: translateY(10px);
+                transform: translateY(15px);
             }
 
             to {
@@ -44,274 +45,690 @@
             }
         }
 
-        /* Стеклянные карточки */
+        @keyframes pulse {
+            0% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.7);
+            }
+
+            70% {
+                transform: scale(1);
+                box-shadow: 0 0 0 8px rgba(255, 68, 68, 0);
+            }
+
+            100% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(255, 68, 68, 0);
+            }
+        }
+
+        @keyframes glow {
+            0% {
+                box-shadow: 0 0 10px rgba(0, 242, 255, 0.2);
+            }
+
+            50% {
+                box-shadow: 0 0 20px rgba(0, 242, 255, 0.6);
+            }
+
+            100% {
+                box-shadow: 0 0 10px rgba(0, 242, 255, 0.2);
+            }
+        }
+
+        .toast {
+            position: fixed;
+            top: -100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            color: #000;
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-weight: 800;
+            font-size: 14px;
+            box-shadow: 0 10px 30px rgba(0, 242, 255, 0.4);
+            transition: top 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            pointer-events: none;
+        }
+
+            .toast.show {
+                top: 20px;
+            }
+
+        .tab-content {
+            display: none;
+            padding: 20px;
+            animation: fadeIn 0.4s ease;
+        }
+
+            .tab-content.active {
+                display: block;
+            }
+
         .glass-card {
             background: var(--card-bg);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 20px;
-            padding: 20px;
-            margin-bottom: 15px;
-            backdrop-filter: blur(10px);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            padding: 24px;
+            margin-bottom: 16px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
         }
 
         h1, h2 {
-            margin: 0 0 10px 0;
-            color: var(--accent);
+            margin: 0 0 8px 0;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        h1 {
+            font-size: 28px;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
+            background-clip: text;
+            -webkit-background-clip: text;
+            color: transparent;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h2 {
+            font-size: 20px;
+            color: var(--text-main);
         }
 
         p {
-            margin: 0 0 15px 0;
-            font-size: 14px;
-            color: #aaa;
+            margin: 0 0 16px 0;
+            font-size: 15px;
+            color: var(--text-muted);
+            line-height: 1.5;
         }
 
-        /* Статистика */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
         .stat-box {
-            display: flex;
-            justify-content: space-between;
-            background: rgba(0,0,0,0.3);
-            border-radius: 12px;
-            padding: 15px;
-        }
-
-        .stat-value {
-            font-size: 22px;
-            font-weight: bold;
-            color: #00ff88;
+            background: rgba(0,0,0,0.4);
+            padding: 16px;
+            border-radius: 16px;
+            border: 1px solid rgba(255,255,255,0.03);
         }
 
         .stat-label {
             font-size: 12px;
-            color: #888;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-bottom: 6px;
         }
 
-        .progress-bg {
-            background: rgba(255,255,255,0.1);
+        .stat-value {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--text-main);
+        }
+
+        .stat-sub {
+            font-size: 11px;
+            color: var(--accent-cyan);
+            margin-top: 4px;
+        }
+
+        .progress-track {
+            background: rgba(255,255,255,0.05);
+            height: 6px;
             border-radius: 10px;
-            height: 8px;
-            margin-top: 15px;
             overflow: hidden;
+            margin-top: 10px;
         }
 
         .progress-fill {
-            background: linear-gradient(90deg, #00f2ff, #7000ff);
             height: 100%;
             border-radius: 10px;
-            transition: 0.5s;
+            transition: width 1s ease;
         }
 
-        /* Кнопки */
+        .fill-cyan {
+            background: linear-gradient(90deg, #0088ff, var(--accent-cyan));
+        }
+
+        .fill-purple {
+            background: linear-gradient(90deg, #7000ff, var(--accent-purple));
+        }
+
+        .fill-danger {
+            background: var(--danger);
+        }
+
+        .key-box {
+            background: rgba(0,0,0,0.6);
+            padding: 16px;
+            border-radius: 16px;
+            font-family: monospace;
+            font-size: 12px;
+            color: var(--accent-cyan);
+            word-break: break-all;
+            margin-bottom: 16px;
+            border: 1px solid rgba(0, 242, 255, 0.2);
+            text-align: center;
+        }
+
         .btn {
-            background: rgba(0, 242, 255, 0.1);
-            border: 1px solid var(--accent);
-            color: var(--accent);
-            padding: 15px;
-            border-radius: 14px;
             width: 100%;
+            padding: 16px;
+            border-radius: 16px;
             font-size: 16px;
-            font-weight: bold;
+            font-weight: 700;
+            border: none;
             cursor: pointer;
             transition: 0.2s;
-            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
             .btn:active {
-                background: var(--accent);
-                color: #000;
+                transform: scale(0.97);
             }
 
         .btn-primary {
-            background: linear-gradient(45deg, #00f2ff, #0088ff);
+            background: linear-gradient(135deg, var(--accent-cyan), #0088ff);
             color: #000;
-            border: none;
-            box-shadow: 0 4px 15px rgba(0,242,255,0.3);
+            animation: glow 3s infinite;
         }
 
-        /* Нижняя панель навигации */
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--card-border);
+            color: var(--text-main);
+            margin-bottom: 12px;
+        }
+
+        .btn-store {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--accent-purple);
+            color: var(--text-main);
+            margin-bottom: 12px;
+            justify-content: space-between;
+            padding: 20px;
+        }
+
+            .btn-store span.price {
+                color: var(--accent-purple);
+                font-weight: 800;
+                font-size: 18px;
+            }
+
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            height: 50vh;
+            overflow-y: auto;
+            padding-right: 5px;
+            scroll-behavior: smooth;
+        }
+
+        .msg-bubble {
+            max-width: 85%;
+            padding: 14px 18px;
+            border-radius: 20px;
+            font-size: 15px;
+            line-height: 1.4;
+            position: relative;
+            word-wrap: break-word;
+        }
+
+        .msg-admin {
+            background: linear-gradient(135deg, rgba(189, 147, 249, 0.15), rgba(112, 0, 255, 0.15));
+            border: 1px solid rgba(189, 147, 249, 0.3);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+
+        .msg-system {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--card-border);
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .msg-time {
+            font-size: 10px;
+            color: rgba(255,255,255,0.4);
+            margin-top: 6px;
+            text-align: right;
+        }
+
+        .chat-input-area {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .chat-input {
+            flex: 1;
+            border-radius: 16px;
+            border: 1px solid var(--card-border);
+            background: rgba(0,0,0,0.5);
+            color: white;
+            padding: 15px;
+            font-size: 15px;
+            outline: none;
+        }
+
+            .chat-input:focus {
+                border-color: var(--accent-cyan);
+            }
+
+        .guide-item {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+
+        .guide-header {
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .guide-content {
+            padding: 0 16px 16px 16px;
+            display: none;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+            .guide-content.open {
+                display: block;
+                animation: fadeIn 0.3s ease;
+            }
+
         .bottom-nav {
             position: fixed;
             bottom: 0;
             left: 0;
             right: 0;
-            background: rgba(15,15,15,0.9);
-            backdrop-filter: blur(15px);
-            border-top: 1px solid rgba(255,255,255,0.1);
+            background: rgba(15, 15, 19, 0.85);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-top: 1px solid rgba(255,255,255,0.05);
             display: flex;
             justify-content: space-around;
-            padding: 10px 0 20px 0;
+            padding: 12px 10px 24px 10px;
             z-index: 100;
         }
 
         .nav-item {
-            color: #666;
+            color: var(--text-muted);
             text-align: center;
-            font-size: 12px;
-            width: 33%;
+            font-size: 11px;
+            font-weight: 600;
+            width: 25%;
             cursor: pointer;
-            transition: 0.2s;
+            transition: 0.3s ease;
+            position: relative;
         }
 
             .nav-item.active {
-                color: var(--accent);
+                color: var(--text-main);
             }
 
         .nav-icon {
-            font-size: 22px;
+            font-size: 24px;
             margin-bottom: 4px;
             display: block;
+            filter: grayscale(1);
+            transition: 0.3s ease;
+        }
+
+        .nav-item.active .nav-icon {
+            filter: grayscale(0);
+            text-shadow: 0 0 15px rgba(0, 242, 255, 0.5);
+        }
+
+        .badge {
+            position: absolute;
+            top: -2px;
+            right: 20%;
+            background: var(--danger);
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid var(--bg-color);
+            animation: pulse 2s infinite;
+            display: none;
         }
 
         #loader {
             text-align: center;
-            margin-top: 50vh;
-            color: var(--accent);
-            font-weight: bold;
-            transform: translateY(-50%);
+            margin-top: 40vh;
+            color: var(--accent-cyan);
+            font-weight: 700;
+            font-size: 16px;
+            line-height: 1.5;
         }
     </style>
 </head>
 <body>
-
-    <div id="loader">Загрузка профиля...</div>
+    <div id="toast" class="toast"></div>
+    <div id="loader" style="animation: glow 2s infinite;">Синхронизация...</div>
 
     <div id="tab-profile" class="tab-content">
         <div id="state-no-sub" style="display: none; text-align: center; padding-top: 40px;">
-            <div style="font-size: 60px; margin-bottom: 20px;">🛡️</div>
-            <h1>Защити свой трафик</h1>
-            <p>Высокоскоростной VPN без блокировок. Создай свой профиль прямо сейчас.</p>
-            <button class="btn btn-primary" onclick="generateVpn(this)" style="margin-top: 20px;">СОЗДАТЬ VPN ПРОФИЛЬ</button>
+            <div style="font-size: 70px; margin-bottom: 20px; filter: drop-shadow(0 0 20px rgba(0, 242, 255, 0.4));">🛡️</div>
+            <h1>Анонимность 2.0</h1>
+            <p>Высокоскоростной VPN-туннель нового поколения. Никаких блокировок и логов.</p>
+            <button class="btn btn-primary" onclick="generateVpn(this)" style="margin-top: 30px;">🚀 ЗАПУСТИТЬ ТУННЕЛЬ</button>
         </div>
 
         <div id="state-has-sub" style="display: none;">
             <div class="glass-card">
                 <h1 id="userName">Профиль</h1>
-                <p id="expiryText">Статус: Активен</p>
-                <div class="stat-box">
-                    <div><div class="stat-label">Остаток трафика</div><div class="stat-value" id="trafficLeft">0 ГБ</div></div>
-                    <div style="text-align: right;"><div class="stat-label">Лимит</div><div class="stat-value" style="color:#fff;" id="trafficTotal">0 ГБ</div></div>
+                <p>Ваш Telegram ID: <span id="userIdDisplay" style="color:var(--text-main)">...</span></p>
+                <div class="stat-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">Остаток времени</div>
+                        <div class="stat-value" id="daysLeft">0</div>
+                        <div class="stat-sub" id="expiryDateText">...</div>
+                        <div class="progress-track"><div class="progress-fill fill-purple" id="timeBar" style="width: 0%;"></div></div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Трафик</div>
+                        <div class="stat-value" id="trafficLeft">0<span style="font-size:14px; color:var(--text-muted)"> ГБ</span></div>
+                        <div class="stat-sub">из <span id="trafficTotal">0</span> ГБ</div>
+                        <div class="progress-track"><div class="progress-fill fill-cyan" id="trafficBar" style="width: 0%;"></div></div>
+                    </div>
                 </div>
-                <div class="progress-bg"><div class="progress-fill" id="trafficBar" style="width: 0%;"></div></div>
+
+                <div class="stat-box" style="margin-bottom: 20px;">
+                    <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 10px;">
+                        <div>
+                            <div class="stat-label">Реферальная сеть</div>
+                            <div class="stat-value" style="font-size:18px;" id="refCount">0 друзей</div>
+                        </div>
+                        <button class="btn btn-outline" style="width:auto; margin:0; padding:10px 16px; font-size:13px;" onclick="showRefLink()">Позвать</button>
+                    </div>
+                    <div id="refContainer" style="display: none;">
+                        <div class="key-box" id="refLink" onclick="copyRefLink()" style="margin-bottom:0; font-size: 11px; border-color: var(--accent-purple); color: var(--accent-purple); cursor: pointer;">...</div>
+                    </div>
+                </div>
             </div>
 
             <div class="glass-card">
-                <h2>Твой ключ</h2>
-                <div style="background: rgba(0,0,0,0.5); padding: 12px; border-radius: 8px; font-family: monospace; font-size: 11px; word-break: break-all; color: #aaa; margin-bottom: 15px;" id="keyLink">...</div>
-                <button class="btn btn-primary" onclick="copyKey()">📋 СКОПИРОВАТЬ</button>
+                <h2>🔗 Ключ доступа</h2>
+                <p>Нажмите на ключ, чтобы скопировать его в буфер обмена для Hiddify или V2Ray.</p>
+                <div class="key-box" id="keyLink" onclick="copyKey()" style="cursor: pointer;">Загрузка...</div>
+                <button class="btn btn-outline" onclick="copyKey()">📋 КОПИРОВАТЬ КЛЮЧ</button>
             </div>
         </div>
     </div>
 
     <div id="tab-store" class="tab-content">
         <div class="glass-card">
-            <h2>Продление подписки</h2>
-            <p>Выбери тариф для продления доступа:</p>
-            <button class="btn" style="border-color: #ffaa00; color: #ffaa00;" onclick="sendAction('renew', this)">1 Месяц - 150 ₽</button>
-            <button class="btn" onclick="tg.showAlert('В разработке')">3 Месяца - 400 ₽</button>
+            <h1>Магазин</h1>
+            <p>Продлите или улучшите свой туннель. После выбора тарифа с вами свяжется администратор.</p>
+            <button class="btn btn-store" onclick="buyTariff('1 Месяц', 249)"><span>⭐ 1 Месяц</span><span class="price">249 ₽</span></button>
+            <button class="btn btn-store" onclick="buyTariff('3 Месяца', 642)"><span>🔥 3 Месяца</span><span class="price">642 ₽</span></button>
+            <button class="btn btn-store" style="border-color: var(--accent-cyan);" onclick="buyTariff('6 Месяцев', 1100)"><span>💎 6 Месяцев (Выгода)</span><span class="price" style="color: var(--accent-cyan)">1100 ₽</span></button>
         </div>
     </div>
 
-    <div id="tab-settings" class="tab-content">
+    <div id="tab-inbox" class="tab-content">
+        <div class="glass-card" style="padding-bottom: 20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h1>Инбокс</h1>
+                <span onclick="loadInbox()" style="cursor:pointer; font-size:20px;">🔄</span>
+            </div>
+            <p>Уведомления системы и связь с поддержкой.</p>
+            <div class="chat-container" id="chatContainer">
+                <div style="text-align: center; color: var(--text-muted); margin-top: 20px;">Нет сообщений</div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" id="chatInput" class="chat-input" placeholder="Сообщение админу..." onkeypress="if(event.key === 'Enter') sendAdminMessage()">
+                <button class="btn btn-primary" style="width: 50px; margin:0; border-radius: 16px;" onclick="sendAdminMessage()">➤</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-guide" class="tab-content">
         <div class="glass-card">
-            <h2>Информация</h2>
-            <p>Твой Telegram ID: <span id="userIdDisplay" style="color:var(--accent)">...</span></p>
-            <p>Приглашено друзей: <span id="refCount" style="color:var(--accent)">0</span></p>
-            <button class="btn" onclick="sendAction('referral', this)">🎁 Получить реф. ссылку</button>
+            <h1>Инструкции</h1>
+            <p>Выберите вашу платформу для настройки.</p>
+            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">📱 Android (Hiddify) <span>▼</span></div><div class="guide-content">1. Скачайте приложение Hiddify из Google Play.<br>2. Скопируйте ключ из вкладки "Профиль".<br>3. Откройте Hiddify, нажмите "+" и выберите "Добавить из буфера обмена".<br>4. Нажмите огромную кнопку для старта.</div></div>
+            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">🍎 iPhone / iPad (V2Ray Tun) <span>▼</span></div><div class="guide-content">1. Скачайте V2Ray Tun или Streisand из App Store.<br>2. Скопируйте ключ.<br>3. Откройте приложение, нажмите "+" и "Import from Clipboard".<br>4. Запустите VPN.</div></div>
+            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">💻 Windows (Hiddify) <span>▼</span></div><div class="guide-content">1. Скачайте Hiddify-Next-Windows с GitHub.<br>2. Скопируйте ключ из профиля.<br>3. Вставьте его в программу и нажмите Connect.</div></div>
+            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">🍏 Mac OS (V2RayX) <span>▼</span></div><div class="guide-content">1. Установите V2RayX или Hiddify для Mac.<br>2. Скопируйте ссылку подписки.<br>3. Импортируйте и подключитесь.</div></div>
         </div>
     </div>
 
     <div class="bottom-nav" id="bottomNav" style="display: none;">
         <div class="nav-item active" onclick="switchTab('profile', this)"><span class="nav-icon">👤</span>Профиль</div>
-        <div class="nav-item" onclick="switchTab('store', this)"><span class="nav-icon">🛒</span>Магазин</div>
-        <div class="nav-item" onclick="switchTab('settings', this)"><span class="nav-icon">⚙️</span>Настройки</div>
+        <div class="nav-item" onclick="switchTab('store', this)"><span class="nav-icon">🛒</span>Тарифы</div>
+        <div class="nav-item" onclick="switchTab('inbox', this)"><div class="badge" id="inboxBadge"></div><span class="nav-icon">🔔</span>Инбокс</div>
+        <div class="nav-item" onclick="switchTab('guide', this)"><span class="nav-icon">📖</span>Гайд</div>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
-        tg.ready(); tg.expand();
-        tg.setHeaderColor('#111111');
+        try { tg.ready(); tg.expand(); if (tg.setHeaderColor) tg.setHeaderColor('#0f0f13'); } catch (e) { }
+
         const userId = tg.initDataUnsafe?.user?.id || 0;
+        let hasLoadedInbox = false;
+        let pollingInterval = null;
+        let lastUnreadCount = 0;
+
+        function showToast(msg) {
+            try { tg.HapticFeedback.notificationOccurred('success'); } catch (e) { }
+            const toast = document.getElementById('toast');
+            toast.innerHTML = `<span>🔔</span> ${msg}`;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 4000);
+        }
+
+        // ИСПРАВЛЕНИЕ: Теперь поллинг умеет тихо обновлять профиль!
+        function startPolling() {
+            if (pollingInterval) clearInterval(pollingInterval);
+            pollingInterval = setInterval(() => {
+                if (userId === 0) return;
+                fetch(`/api/webapp/inbox/unread?tgId=${userId}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        const currentUnread = data.unreadCount || 0;
+                        if (currentUnread > 0) {
+                            document.getElementById('inboxBadge').style.display = 'block';
+
+                            if (currentUnread > lastUnreadCount) {
+                                showToast("Новое сообщение от поддержки!");
+
+                                // ТИХОЕ ОБНОВЛЕНИЕ ПРОФИЛЯ (для продлений)
+                                loadProfile(true);
+
+                                if (document.getElementById('tab-inbox').classList.contains('active')) {
+                                    loadInbox();
+                                }
+                            }
+                        } else {
+                            document.getElementById('inboxBadge').style.display = 'none';
+                        }
+                        lastUnreadCount = currentUnread;
+                    }).catch(() => { });
+            }, 4000);
+        }
 
         function switchTab(tabId, element) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             document.getElementById('tab-' + tabId).classList.add('active');
             element.classList.add('active');
+            if (tabId === 'inbox') { loadInbox(); document.getElementById('inboxBadge').style.display = 'none'; }
         }
 
-        function loadProfile() {
-            if (userId === 0) { document.getElementById('loader').innerText = "Открой в Telegram!"; return; }
+        function toggleGuide(headerEl) {
+            const content = headerEl.nextElementSibling;
+            content.classList.toggle('open');
+            headerEl.querySelector('span').innerText = content.classList.contains('open') ? '▲' : '▼';
+        }
 
-            fetch(`/api/webapp/profile?tgId=${userId}`)
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('loader').style.display = 'none';
-                    document.getElementById('bottomNav').style.display = 'flex';
-                    document.getElementById('tab-profile').classList.add('active');
+        function checkUnread() {
+            if (userId === 0) return;
+            fetch(`/api/webapp/inbox/unread?tgId=${userId}`).then(r => r.json()).then(data => {
+                if (data.unreadCount > 0) document.getElementById('inboxBadge').style.display = 'block';
+            }).catch(() => { });
+        }
 
-                    document.getElementById('userIdDisplay').innerText = data.telegramId;
-                    document.getElementById('refCount').innerText = data.referralCount;
-
-                    if (data.hasSubscription) {
-                        document.getElementById('state-no-sub').style.display = 'none';
-                        document.getElementById('state-has-sub').style.display = 'block';
-
-                        document.getElementById('userName').innerText = `Привет, ${data.firstName}!`;
-                        document.getElementById('trafficTotal').innerText = (data.trafficLimit / 1073741824).toFixed(2) + ' ГБ';
-                        document.getElementById('trafficLeft').innerText = ((data.trafficLimit - data.trafficUsed) / 1073741824).toFixed(2) + ' ГБ';
-                        document.getElementById('trafficBar').style.width = `${Math.min((data.trafficUsed / data.trafficLimit) * 100, 100)}%`;
-
-                        window.vpnLinkToCopy = `http://${data.serverIp}:8080/${data.uuid}`;
-                        document.getElementById('keyLink').innerText = window.vpnLinkToCopy;
-                    } else {
-                        document.getElementById('state-has-sub').style.display = 'none';
-                        document.getElementById('state-no-sub').style.display = 'block';
-                    }
+        function loadInbox() {
+            if (userId === 0) return;
+            fetch(`/api/webapp/inbox?tgId=${userId}`).then(r => r.json()).then(msgs => {
+                const container = document.getElementById('chatContainer');
+                if (!msgs || msgs.length === 0) { container.innerHTML = '<div style="text-align: center; color: var(--text-muted); margin-top: 20px;">Тут пока пусто.</div>'; return; }
+                container.innerHTML = '';
+                msgs.forEach(m => {
+                    const div = document.createElement('div');
+                    div.className = 'msg-bubble ' + (m.isFromAdmin ? 'msg-admin' : 'msg-system');
+                    div.innerHTML = `${m.text.replace(/\n/g, '<br>')}<div class="msg-time">${m.createdAt || ''}</div>`;
+                    container.appendChild(div);
                 });
+                container.scrollTop = container.scrollHeight;
+                hasLoadedInbox = true;
+                document.getElementById('inboxBadge').style.display = 'none';
+                lastUnreadCount = 0;
+            }).catch(() => { });
         }
 
-        function generateVpn(btn) {
-            const originalText = btn.innerText;
-            btn.innerText = "⏳ Создаем сервер...";
-            btn.disabled = true;
+        function sendAdminMessage() {
+            const input = document.getElementById('chatInput');
+            const text = input.value.trim();
+            if (!text) return;
 
-            fetch('/api/webapp/generate', {
+            input.value = '';
+            fetch('/api/webapp/send_message', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ TelegramId: userId, Action: 'generate' })
-            })
-                .then(res => {
-                    if (!res.ok) throw new Error("Сервер недоступен");
-                    // Если всё успешно - перезагружаем профиль, кнопка сама исчезнет
-                    loadProfile();
-                })
-                .catch(err => {
-                    // Если сервер не ответил (например, таймаут SSH)
-                    tg.showAlert("❌ Ошибка связи с сервером. Подключение по SSH не удалось.");
-                    btn.innerText = originalText;
-                    btn.disabled = false;
-                });
+                body: JSON.stringify({ TelegramId: userId, Text: text })
+            }).then(async r => {
+                if (!r.ok) { const err = await r.text(); tg.showAlert(err || "Ошибка отправки."); }
+                else { loadInbox(); showToast("Отправлено администратору"); }
+            }).catch(() => { tg.showAlert("Ошибка связи."); });
         }
 
-        function copyKey() {
-            navigator.clipboard.writeText(window.vpnLinkToCopy).then(() => {
-                tg.showAlert("✅ Ключ скопирован! Вставь в Hiddify/V2Ray.");
-            }).catch(err => {
-                const tempInput = document.createElement("input"); tempInput.value = window.vpnLinkToCopy;
-                document.body.appendChild(tempInput); tempInput.select(); document.execCommand("copy"); document.body.removeChild(tempInput);
-                tg.showAlert("✅ Ключ скопирован!");
+        function buyTariff(name, price) {
+            tg.showConfirm(`Отправить заявку на тариф "${name}" за ${price} руб? Администратор пришлет реквизиты в Инбокс.`, function (agreed) {
+                if (agreed) {
+                    fetch('/api/webapp/buy', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ TelegramId: userId, TariffName: name })
+                    }).then(() => {
+                        showToast('Заявка отправлена! Ожидайте ответа.');
+                    }).catch(() => { });
+                }
             });
         }
 
-        function sendAction(actionStr, btn) {
-            const originalText = btn.innerText;
-            btn.innerText = "⏳ Обработка...";
-            fetch('/api/webapp/action', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ TelegramId: userId, Action: actionStr })
-            }).then(() => { tg.close(); });
+        function showRefLink() {
+            const link = `https://t.me/VPNNewsEvryDay_bot?start=${userId}`;
+            const box = document.getElementById('refLink');
+            box.innerText = link;
+            document.getElementById('refContainer').style.display = 'block';
+            copyTextToClipboard(link, "✅ Реферальная ссылка скопирована!");
         }
 
-        // Запускаем загрузку при старте
-        loadProfile();
+        function copyRefLink() { copyTextToClipboard(document.getElementById('refLink').innerText, "✅ Реферальная ссылка скопирована!"); }
+        function copyKey() { if (window.vpnLinkToCopy) copyTextToClipboard(window.vpnLinkToCopy, "✅ Ключ скопирован!"); }
+
+        function copyTextToClipboard(text, successMsg) {
+            if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(() => showToast(successMsg)); }
+            else {
+                const tmp = document.createElement("input"); tmp.value = text;
+                document.body.appendChild(tmp); tmp.select(); document.execCommand("copy"); document.body.removeChild(tmp);
+                showToast(successMsg);
+            }
+        }
+
+        // ИСПРАВЛЕНИЕ: Добавлен аргумент isSilent (по умолчанию false)
+        function loadProfile(isSilent = false) {
+            if (userId === 0 && !isSilent) { document.getElementById('loader').style.animation = 'none'; document.getElementById('loader').innerHTML = "⚠️ Откройте через Telegram."; return; }
+
+            fetch(`/api/webapp/profile?tgId=${userId}`).then(async r => {
+                if (!r.ok) throw new Error(r.status === 404 ? "not_found" : "error");
+                return r.json();
+            }).then(data => {
+
+                // Если это не тихое обновление, открываем вкладку профиля
+                if (!isSilent) {
+                    document.getElementById('loader').style.display = 'none';
+                    document.getElementById('bottomNav').style.display = 'flex';
+                    if (!document.querySelector('.tab-content.active')) {
+                        document.getElementById('tab-profile').classList.add('active');
+                    }
+                }
+
+                document.getElementById('userIdDisplay').innerText = data.telegramId || userId;
+                document.getElementById('refCount').innerText = (data.referralCount || 0) + " друзей";
+
+                if (data.hasSubscription) {
+                    document.getElementById('state-no-sub').style.display = 'none';
+                    document.getElementById('state-has-sub').style.display = 'block';
+                    document.getElementById('userName').innerText = data.firstName || "Пользователь";
+
+                    const limit = data.trafficLimit || 0; const used = data.trafficUsed || 0;
+                    document.getElementById('trafficTotal').innerText = (limit / 1073741824).toFixed(1);
+                    document.getElementById('trafficLeft').innerHTML = (Math.max(0, limit - used) / 1073741824).toFixed(1) + '<span style="font-size:14px; color:var(--text-muted)"> ГБ</span>';
+                    document.getElementById('trafficBar').style.width = limit > 0 ? `${Math.min((used / limit) * 100, 100)}%` : '0%';
+
+                    if (data.expiryDate && data.expiryDate !== null) {
+                        try {
+                            const expDate = new Date(data.expiryDate); const diffDays = Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24));
+                            const dText = document.getElementById('daysLeft'); const tBar = document.getElementById('timeBar');
+                            document.getElementById('expiryDateText').innerText = `до ${expDate.toLocaleDateString('ru-RU')}`;
+
+                            if (diffDays > 0) {
+                                dText.innerText = diffDays + ' дн.'; tBar.style.width = `${Math.max(0, Math.min((diffDays / 30) * 100, 100))}%`;
+                                if (diffDays <= 3) { dText.style.color = "var(--danger)"; tBar.className = "progress-fill fill-danger"; }
+                                else { dText.style.color = "var(--text-main)"; tBar.className = "progress-fill fill-purple"; } // Возвращаем цвет при продлении
+                            } else { dText.innerText = 'Истек'; dText.style.color = "var(--danger)"; tBar.style.width = '0%'; tBar.className = "progress-fill fill-danger"; }
+                        } catch (e) { document.getElementById('daysLeft').innerText = "∞"; }
+                    } else { document.getElementById('daysLeft').innerText = "∞"; document.getElementById('expiryDateText').innerText = "Бессрочно"; document.getElementById('timeBar').style.width = '100%'; }
+
+                    window.vpnLinkToCopy = `http://${data.serverIp || '0.0.0.0'}:8080/${data.uuid || ''}`;
+                    document.getElementById('keyLink').innerText = window.vpnLinkToCopy;
+                } else { document.getElementById('state-has-sub').style.display = 'none'; document.getElementById('state-no-sub').style.display = 'block'; }
+
+                // Запускаем поллинг только при первой загрузке
+                if (!isSilent) {
+                    checkUnread();
+                    startPolling();
+                }
+            }).catch(e => {
+                if (!isSilent) {
+                    document.getElementById('loader').style.animation = 'none';
+                    document.getElementById('loader').innerHTML = e.message === "not_found" ? "⚠️ Отправьте боту /start" : "❌ Ошибка сервера.";
+                }
+            });
+        }
+
+        function generateVpn(btn) {
+            btn.innerHTML = "⏳ СОЗДАЕМ..."; btn.disabled = true;
+            fetch('/api/webapp/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: userId, Action: 'generate' }) })
+                .then(res => { if (!res.ok) throw new Error("Ошибка"); setTimeout(() => loadProfile(false), 1000); })
+                .catch(err => { tg.showAlert("❌ Нет доступных серверов резерва."); btn.innerHTML = "🚀 ЗАПУСТИТЬ ТУННЕЛЬ"; btn.disabled = false; });
+        }
+
+        loadProfile(false);
     </script>
 </body>
 </html>
