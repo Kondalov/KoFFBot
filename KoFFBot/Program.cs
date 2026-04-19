@@ -53,6 +53,7 @@ public static class Program
 
         builder.Services.AddSingleton<ITelegramBotClient>(sp => new TelegramBotClient(botToken));
         builder.Services.AddTransient<SubscriptionGenerator>();
+        builder.Services.AddScoped<GameService>();
         builder.Services.AddSingleton<UpdateHandler>();
         builder.Services.AddHostedService<TelegramBotWorker>();
 
@@ -63,6 +64,26 @@ public static class Program
             var db = scope.ServiceProvider.GetRequiredService<BotDbContext>();
             db.Database.EnsureCreated();
             db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
+
+            // === ИСПРАВЛЕНИЕ: БЕЗОПАСНОЕ ДОБАВЛЕНИЕ НОВЫХ ТАБЛИЦ БЕЗ ПОТЕРИ ДАННЫХ ===
+            string createTablesSql = @"
+                CREATE TABLE IF NOT EXISTS ""GameProfiles"" (
+                    ""TelegramId"" INTEGER NOT NULL CONSTRAINT ""PK_GameProfiles"" PRIMARY KEY,
+                    ""CurrentEnergy"" INTEGER NOT NULL,
+                    ""LastEnergyUpdate"" TEXT NOT NULL,
+                    ""EnergySignature"" TEXT NOT NULL,
+                    ""IsBanned"" INTEGER NOT NULL,
+                    ""BanReason"" TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS ""LeaderboardRecords"" (
+                    ""TelegramId"" INTEGER NOT NULL CONSTRAINT ""PK_LeaderboardRecords"" PRIMARY KEY,
+                    ""MaxScore"" INTEGER NOT NULL,
+                    ""AchievedAt"" TEXT NOT NULL,
+                    ""ScoreSignature"" TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ""IX_LeaderboardRecords_MaxScore"" ON ""LeaderboardRecords"" (""MaxScore"" DESC);
+            ";
+            db.Database.ExecuteSqlRaw(createTablesSql);
         }
 
         // === ТОТАЛЬНАЯ ПРОСЛУШКА И СБОР ОШИБОК (DEEP TRACE) ===
@@ -92,7 +113,9 @@ public static class Program
         app.Use(async (context, next) =>
         {
             var path = context.Request.Path.Value?.ToLower() ?? "";
-            if (path.StartsWith("/api/webapp") || path.EndsWith(".html") || path.EndsWith(".js") || path.EndsWith(".css") || path == "/")
+
+            // ИСПРАВЛЕНИЕ АРХИТЕКТУРЫ: Добавляем "/api/game" в белый список для Web App
+            if (path.StartsWith("/api/webapp") || path.StartsWith("/api/game") || path.EndsWith(".html") || path.EndsWith(".js") || path.EndsWith(".css") || path == "/")
             {
                 await next(context);
                 return;
@@ -123,12 +146,10 @@ public static class Program
             return Results.Ok(new { message = $"Синхронизировано {subs.Count} клиентов" });
         });
 
-        // ИСПРАВЛЕНИЕ АРХИТЕКТУРЫ: НОВЫЙ МАРШРУТ ДЛЯ ТРАФИКА
         app.MapPost("/api/sync/traffic", async (List<TrafficSyncDto> trafficData, BotDbContext db) =>
         {
             if (trafficData == null || !trafficData.Any()) return Results.Ok();
 
-            // Вытаскиваем все UUID из пакета для быстрого поиска в БД (оптимизация)
             var uuids = trafficData.Select(t => t.Uuid).ToList();
             var dbSubs = await db.VpnSubscriptions.Where(s => uuids.Contains(s.Uuid)).ToListAsync();
 
@@ -138,7 +159,6 @@ public static class Program
                 var sub = dbSubs.FirstOrDefault(s => s.Uuid == incoming.Uuid);
                 if (sub != null)
                 {
-                    // Обновляем лимиты и текущий расход
                     sub.TrafficLimitBytes = incoming.TrafficLimitBytes;
                     sub.TrafficUsedBytes = incoming.TrafficUsedBytes;
                     updatedCount++;
@@ -313,6 +333,52 @@ public static class Program
             return Results.Ok();
         });
 
+        // === НОВЫЕ ИГРОВЫЕ ENDPOINTS ===
+
+        app.MapGet("/api/game/profile", async (long tgId, GameService gameService) =>
+        {
+            var profile = await gameService.GetOrCreateProfileAsync(tgId, CancellationToken.None);
+            if (profile.IsBanned) return Results.BadRequest("Аккаунт заблокирован.");
+
+            return Results.Ok(new { Energy = profile.CurrentEnergy, IsBanned = profile.IsBanned });
+        });
+
+        app.MapPost("/api/game/start", async (GameActionRequest req, GameService gameService) =>
+        {
+            var result = await gameService.TryStartGameAsync(req.TelegramId, CancellationToken.None);
+            if (!result.Success) return Results.BadRequest(result.Message);
+
+            return Results.Ok(new { Message = result.Message, RemainingEnergy = result.RemainingEnergy });
+        });
+
+        app.MapPost("/api/game/submit", async (GameScoreRequest req, GameService gameService) =>
+        {
+            var result = await gameService.SubmitScoreAsync(req.TelegramId, req.Score, req.Signature, CancellationToken.None);
+            if (!result.Success) return Results.BadRequest(result.Message);
+            return Results.Ok(new { Message = result.Message });
+        });
+
+        app.MapPost("/api/game/boss_victory", async (GameActionRequest req, GameService gameService) =>
+        {
+            var result = await gameService.ProcessBossVictoryAsync(req.TelegramId, req.Signature, CancellationToken.None);
+            if (!result.Success) return Results.BadRequest(result.Message);
+            return Results.Ok(new { Message = result.Message });
+        });
+
+        // === ИСПРАВЛЕНИЕ АРХИТЕКТУРЫ: Секретный эндпоинт для Режима Бога ===
+        app.MapPost("/api/game/cheat", async (GameActionRequest req, GameService gameService) =>
+        {
+            // Строгая сверка с ADMIN_TG_ID (Правило 254: Админские эндпоинты закрыты)
+            if (!long.TryParse(adminIdStr, out long adminId) || req.TelegramId != adminId)
+            {
+                BotLogger.Log("SECURITY", $"[CHEAT-ATTEMPT] Попытка активации читов от не-админа: {req.TelegramId}");
+                return Results.BadRequest("У вас нет прав.");
+            }
+
+            var result = await gameService.AddCheatEnergyAsync(req.TelegramId, 50, CancellationToken.None);
+            return Results.Ok(new { Message = result.Message, NewEnergy = result.NewEnergy });
+        });
+
         BotLogger.Log("SYSTEM", "KoFFBot: Успешный запуск.");
         app.Run();
     }
@@ -325,11 +391,6 @@ public class ReserveCountDto { public int ReserveCount { get; set; } }
 public class ReserveKeyDto { public string Uuid { get; set; } = ""; public string ServerIp { get; set; } = ""; public long TrafficLimitBytes { get; set; } }
 public class BuyRequest { public long TelegramId { get; set; } public string TariffName { get; set; } = ""; }
 public class UserMessageRequest { public long TelegramId { get; set; } public string Text { get; set; } = ""; }
-
-// НОВЫЙ КЛАСС: Для приема трафика от Панели
-public class TrafficSyncDto
-{
-    public string Uuid { get; set; } = "";
-    public long TrafficUsedBytes { get; set; }
-    public long TrafficLimitBytes { get; set; }
-}
+public class GameActionRequest { public long TelegramId { get; set; } public string Signature { get; set; } = string.Empty; }
+public class GameScoreRequest { public long TelegramId { get; set; } public long Score { get; set; } public string Signature { get; set; } = string.Empty; }
+public class TrafficSyncDto { public string Uuid { get; set; } = ""; public long TrafficUsedBytes { get; set; } public long TrafficLimitBytes { get; set; } }

@@ -26,9 +26,52 @@ public class TelegramBotWorker : BackgroundService
 
         // Запускаем слушателя сообщений в фоне
         _ = StartPollingAsync(stoppingToken);
+        _ = StartEnergyRegenAsync(stoppingToken);
 
         // Запускаем умный мониторинг сроков подписок
         await StartExpiryNotifierAsync(stoppingToken);
+    }
+
+    // Добавь этот метод внутрь класса TelegramBotWorker
+    private async Task StartEnergyRegenAsync(CancellationToken stoppingToken)
+    {
+        BotLogger.Log("GAME-WORKER", "Генератор энергии запущен (восстановление каждые 30 минут).");
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMinutes(30), stoppingToken); // Ждем 30 минут
+
+                using var scope = _serviceProvider.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<BotDbContext>();
+
+                // Находим всех, у кого энергия меньше максимума (5) и кто не в бане
+                var profilesToUpdate = await db.GameProfiles
+                    .Where(p => p.CurrentEnergy < 5 && !p.IsBanned)
+                    .ToListAsync(stoppingToken);
+
+                int updatedCount = 0;
+                foreach (var profile in profilesToUpdate)
+                {
+                    profile.CurrentEnergy += 1;
+                    profile.LastEnergyUpdate = DateTime.UtcNow;
+                    // Обновляем античит-подпись!
+                    profile.EnergySignature = KoFFBot.Security.AntiCheatSigner.GenerateSignature(profile.TelegramId, profile.CurrentEnergy);
+                    updatedCount++;
+                }
+
+                if (updatedCount > 0)
+                {
+                    await db.SaveChangesAsync(stoppingToken);
+                    BotLogger.Log("GAME-WORKER", $"Восстановлена энергия для {updatedCount} игроков.");
+                }
+            }
+            catch (Exception ex)
+            {
+                BotLogger.Log("GAME-WORKER", $"Ошибка восстановления энергии: {ex.Message}");
+            }
+        }
     }
 
     private async Task StartPollingAsync(CancellationToken stoppingToken)

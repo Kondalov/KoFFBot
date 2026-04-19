@@ -68,3 +68,32 @@ public sealed record SupportMessage
     public bool IsRead { get; set; }
     public DateTime CreatedAt { get; set; }
 }
+
+// === НОВЫЙ ИГРОВОЙ ФУНКЦИОНАЛ ===
+
+public sealed record GameProfile
+{
+    [Key]
+    public long TelegramId { get; set; }
+
+    public int CurrentEnergy { get; set; } = 5;
+    public DateTime LastEnergyUpdate { get; set; } = DateTime.UtcNow;
+
+    // Античит для энергии
+    public string EnergySignature { get; set; } = string.Empty;
+
+    public bool IsBanned { get; set; }
+    public string BanReason { get; set; } = string.Empty;
+}
+
+public sealed record LeaderboardRecord
+{
+    [Key]
+    public long TelegramId { get; set; }
+
+    public long MaxScore { get; set; }
+    public DateTime AchievedAt { get; set; }
+
+    // Античит для очков
+    public string ScoreSignature { get; set; } = string.Empty;
+}
