@@ -118,6 +118,7 @@
             margin-bottom: 16px;
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
+            box-shadow: inset 0 0 20px rgba(255,255,255,0.01);
         }
 
         h1, h2 {
@@ -152,13 +153,19 @@
             grid-template-columns: 1fr 1fr;
             gap: 15px;
             margin-bottom: 20px;
+            align-items: stretch;
         }
 
+        /* ИСПРАВЛЕНИЕ: Flexbox-каркас для выравнивания */
         .stat-box {
             background: rgba(0,0,0,0.4);
             padding: 16px;
             border-radius: 16px;
             border: 1px solid rgba(255,255,255,0.03);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            box-shadow: inset 0 0 15px rgba(255,255,255,0.02);
         }
 
         .stat-label {
@@ -166,44 +173,62 @@
             color: var(--text-muted);
             text-transform: uppercase;
             margin-bottom: 6px;
+            font-weight: 600;
         }
 
+        /* ИСПРАВЛЕНИЕ: Флюидная типографика и запрет переноса */
         .stat-value {
-            font-size: 24px;
+            font-size: clamp(18px, 6vw, 26px);
             font-weight: 800;
             color: var(--text-main);
+            white-space: nowrap;
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+
+        /* ИСПРАВЛЕНИЕ: Стилизация единиц измерения */
+        .stat-unit {
+            font-size: 0.55em;
+            color: var(--text-muted);
+            font-weight: 600;
         }
 
         .stat-sub {
             font-size: 11px;
             color: var(--accent-cyan);
             margin-top: 4px;
+            margin-bottom: 12px; /* Воздух перед прогресс-баром */
         }
 
+        /* ИСПРАВЛЕНИЕ: margin-top: auto прибивает бар жестко к низу карточки */
         .progress-track {
             background: rgba(255,255,255,0.05);
             height: 6px;
             border-radius: 10px;
             overflow: hidden;
-            margin-top: 10px;
+            margin-top: auto;
         }
 
         .progress-fill {
             height: 100%;
             border-radius: 10px;
-            transition: width 1s ease;
+            transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .fill-cyan {
             background: linear-gradient(90deg, #0088ff, var(--accent-cyan));
+            box-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
         }
 
         .fill-purple {
             background: linear-gradient(90deg, #7000ff, var(--accent-purple));
+            box-shadow: 0 0 10px rgba(189, 147, 249, 0.3);
         }
 
         .fill-danger {
             background: var(--danger);
+            box-shadow: 0 0 10px rgba(255, 68, 68, 0.3);
         }
 
         .key-box {
@@ -227,7 +252,7 @@
             font-weight: 700;
             border: none;
             cursor: pointer;
-            transition: 0.2s;
+            transition: transform 0.2s, box-shadow 0.2s;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -324,6 +349,7 @@
             padding: 15px;
             font-size: 15px;
             outline: none;
+            transition: border-color 0.3s;
         }
 
             .chat-input:focus {
@@ -448,9 +474,10 @@
                         <div class="stat-sub" id="expiryDateText">...</div>
                         <div class="progress-track"><div class="progress-fill fill-purple" id="timeBar" style="width: 0%;"></div></div>
                     </div>
+
                     <div class="stat-box">
                         <div class="stat-label">Трафик</div>
-                        <div class="stat-value" id="trafficValue">0 Б</div>
+                        <div class="stat-value" id="trafficValue">0<span class="stat-unit">Б</span></div>
                         <div class="stat-sub" id="trafficSub">из 0 Б</div>
                         <div class="progress-track"><div class="progress-fill fill-cyan" id="trafficBar" style="width: 0%;"></div></div>
                     </div>
@@ -650,14 +677,14 @@
             }
         }
 
-        // ИСПРАВЛЕНИЕ: Умная функция конвертации байтов
+        // ИСПРАВЛЕНИЕ: Вывод чистых span элементов для правильного Flexbox выравнивания
         function formatBytesToHTML(bytes) {
-            if (bytes === 0) return '0.0<span style="font-size:14px; color:var(--text-muted)"> МБ</span>';
+            if (bytes === 0) return '0.0<span class="stat-unit">МБ</span>';
             const k = 1024;
             const sizes = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             const val = parseFloat((bytes / Math.pow(k, i)).toFixed(2));
-            return val + `<span style="font-size:14px; color:var(--text-muted)"> ${sizes[i]}</span>`;
+            return val + `<span class="stat-unit">${sizes[i]}</span>`;
         }
 
         function loadProfile(isSilent = false) {
@@ -681,23 +708,18 @@
                     document.getElementById('state-has-sub').style.display = 'block';
                     document.getElementById('userName').innerText = data.firstName || "Пользователь";
 
-                    // ИСПРАВЛЕНИЕ: Умный рендер трафика
                     const limit = data.trafficLimit || 0;
                     const used = data.trafficUsed || 0;
 
                     if (limit === 0) {
-                        // БЕЗЛИМИТ
                         document.getElementById('trafficValue').innerHTML = formatBytesToHTML(used);
                         document.getElementById('trafficSub').innerText = '∞ Безлимит';
                         document.getElementById('trafficBar').style.width = '100%';
                         document.getElementById('trafficBar').className = "progress-fill fill-cyan";
                     } else {
-                        // ЛИМИТНЫЙ ТАРИФ
                         const left = Math.max(0, limit - used);
                         document.getElementById('trafficValue').innerHTML = formatBytesToHTML(left);
-                        document.getElementById('trafficSub').innerText = `из ${formatBytesToHTML(limit).replace(/<[^>]*>?/gm, '')}`; // Убираем HTML теги для "из 1 ГБ"
-
-                        // Если осталось меньше 10% — красим в красный
+                        document.getElementById('trafficSub').innerText = `из ${formatBytesToHTML(limit).replace(/<[^>]*>?/gm, '')}`;
                         document.getElementById('trafficBar').className = left <= (limit * 0.1) ? "progress-fill fill-danger" : "progress-fill fill-cyan";
                         document.getElementById('trafficBar').style.width = `${Math.min((used / limit) * 100, 100)}%`;
                     }
