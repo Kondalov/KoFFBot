@@ -148,12 +148,15 @@ function loadProfile(isSilent = false) {
         if (!r.ok) throw new Error(r.status === 404 ? "not_found" : "error"); return r.json();
     }).then(data => {
         if (!isSilent) {
-            document.getElementById('loader').style.display = 'none'; document.getElementById('bottomNav').style.display = 'flex';
+            document.getElementById('loader').style.display = 'none';
+
+            // === ВОТ ЭТА СТРОКА: ГАРАНТИРОВАННО ВКЛЮЧАЕТ МЕНЮ ===
+            document.getElementById('bottomNav').style.display = 'flex';
+
             if (!document.querySelector('.tab-content.active')) { document.getElementById('tab-profile').classList.add('active'); }
         }
 
         window.isAdmin = data.isAdmin === true;
-        // ПРАВИЛО 238: Получаем секрет из бэкенда!
         window.GAME_SECRET = data.gameSecret || "";
 
         document.getElementById('userIdDisplay').innerText = data.telegramId || window.userId; document.getElementById('refCount').innerText = (data.referralCount || 0) + " друзей";

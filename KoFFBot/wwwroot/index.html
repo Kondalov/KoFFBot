@@ -212,8 +212,16 @@
         </div>
     </div>
 
-    <div class="bottom-nav" id="bottomNav" style="display: none;">
+    <div class="bottom-nav" id="bottomNav" style="display: flex;">
+        <div class="nav-item active" onclick="switchTab('profile', this)"><span class="nav-icon">👤</span>Профиль</div>
+        <div class="nav-item" onclick="switchTab('leaderboard', this)"><span class="nav-icon">🏆</span>Топ</div>
+        <div class="nav-item" onclick="switchTab('store', this)"><span class="nav-icon">🛒</span>Тарифы</div>
+        <div class="nav-item" onclick="switchTab('inbox', this)"><div class="badge" id="inboxBadge"></div><span class="nav-icon">🔔</span>Инбокс</div>
+        <div class="nav-item" onclick="switchTab('guide', this)"><span class="nav-icon">📖</span>Гайд</div>
     </div>
+
+    <script src="assets/js/app.js?v=2"></script>
+    <script src="assets/js/game.js?v=2"></script>
 
     <div id="infoModal" class="info-modal-overlay">
         <div class="info-modal-content">

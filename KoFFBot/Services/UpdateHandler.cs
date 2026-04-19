@@ -85,7 +85,7 @@ public class UpdateHandler : IUpdateHandler
 
         if (message.Text.StartsWith("/start"))
         {
-            var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://0b800fa1920f10.lhr.life" }) } }; // ВСТАВЬ СВОЮ ССЫЛКУ
+            var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://f98b5bf5ab4b06.lhr.life" }) } }; // ВСТАВЬ СВОЮ ССЫЛКУ
             await botClient.SendMessage(chatId: message.Chat.Id, text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение.", replyMarkup: new InlineKeyboardMarkup(buttons), cancellationToken: cancellationToken);
         }
     }
