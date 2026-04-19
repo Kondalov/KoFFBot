@@ -85,7 +85,7 @@ public class UpdateHandler : IUpdateHandler
 
         if (message.Text.StartsWith("/start"))
         {
-            var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://8c82691684a8f0.lhr.life" }) } }; // ВСТАВЬ СВОЮ ССЫЛКУ
+            var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://0b800fa1920f10.lhr.life" }) } }; // ВСТАВЬ СВОЮ ССЫЛКУ
             await botClient.SendMessage(chatId: message.Chat.Id, text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение.", replyMarkup: new InlineKeyboardMarkup(buttons), cancellationToken: cancellationToken);
         }
     }
@@ -138,8 +138,8 @@ public class UpdateHandler : IUpdateHandler
                 string targetId = data.Replace("renew_", "");
                 BotLogger.Log("ACTION", $"Смена клавиатуры на тарифы для ID: {targetId}");
                 var kb = new InlineKeyboardMarkup(new[] {
-                    new[] { InlineKeyboardButton.WithCallbackData("1 Месяц", $"t1_{targetId}"), InlineKeyboardButton.WithCallbackData("3 Месяца", $"t3_{targetId}") },
-                    new[] { InlineKeyboardButton.WithCallbackData("6 Месяцев", $"t6_{targetId}"), InlineKeyboardButton.WithCallbackData("❌ Отмена", $"hide_{targetId}") }
+                    new[] { InlineKeyboardButton.WithCallbackData("1 Месяц (+100⚡)", $"t1_{targetId}"), InlineKeyboardButton.WithCallbackData("3 Месяца (+350⚡)", $"t3_{targetId}") },
+                    new[] { InlineKeyboardButton.WithCallbackData("6 Месяцев (+1000⚡)", $"t6_{targetId}"), InlineKeyboardButton.WithCallbackData("❌ Отмена", $"hide_{targetId}") }
                 });
                 await botClient.EditMessageReplyMarkup(chatId, callbackQuery.Message.MessageId, replyMarkup: kb, cancellationToken: cancellationToken);
                 return;
@@ -147,7 +147,11 @@ public class UpdateHandler : IUpdateHandler
             else if (data.StartsWith("t1_") || data.StartsWith("t3_") || data.StartsWith("t6_"))
             {
                 int months = data.StartsWith("t1_") ? 1 : (data.StartsWith("t3_") ? 3 : 6);
-                BotLogger.Log("ACTION", $"Запрос на продление на {months} мес. Data: {data}");
+
+                // === УМНАЯ ЗАЩИТА: Начисляем энергию в зависимости от тарифа ===
+                int energyBonus = data.StartsWith("t1_") ? 100 : (data.StartsWith("t3_") ? 350 : 1000);
+
+                BotLogger.Log("ACTION", $"Запрос на продление на {months} мес. и выдачу {energyBonus} энергии. Data: {data}");
 
                 if (long.TryParse(data.Substring(3), out long targetId))
                 {
@@ -158,15 +162,23 @@ public class UpdateHandler : IUpdateHandler
                         sub.ExpiryDate = baseDate.AddDays(months * 30);
                         sub.SyncStatus = SyncStatus.PendingUpdate;
 
-                        BotLogger.Log("ACTION", $"Обновление ключа в БД до {sub.ExpiryDate.Value:dd.MM.yyyy}");
-                        dbContext.SupportMessages.Add(new SupportMessage { TelegramId = targetId, Text = $"✅ Ваша подписка успешно продлена на {months} мес!\nНовый срок: {sub.ExpiryDate.Value:dd.MM.yyyy}", IsFromAdmin = true, IsRead = false, CreatedAt = DateTime.UtcNow });
+                        // Обновляем энергию с переподписью античита!
+                        var profile = await dbContext.GameProfiles.FirstOrDefaultAsync(p => p.TelegramId == targetId, cancellationToken);
+                        if (profile != null)
+                        {
+                            profile.CurrentEnergy += energyBonus;
+                            profile.EnergySignature = KoFFBot.Security.AntiCheatSigner.GenerateSignature(targetId, profile.CurrentEnergy);
+                        }
+
+                        BotLogger.Log("ACTION", $"Обновление ключа в БД до {sub.ExpiryDate.Value:dd.MM.yyyy} и начисление энергии.");
+                        dbContext.SupportMessages.Add(new SupportMessage { TelegramId = targetId, Text = $"✅ Ваша подписка успешно продлена на {months} мес!\nНовый срок: {sub.ExpiryDate.Value:dd.MM.yyyy}\n⚡ Энергия пополнена: +{energyBonus}", IsFromAdmin = true, IsRead = false, CreatedAt = DateTime.UtcNow });
 
                         var referral = await dbContext.Referrals.FirstOrDefaultAsync(r => r.InvitedTelegramId == targetId && !r.IsActivated, cancellationToken);
                         if (referral != null) referral.IsActivated = true;
 
                         await dbContext.SaveChangesAsync(cancellationToken);
 
-                        await botClient.SendMessage(chatId: targetId, text: "✅ *Подписка продлена!*\nПроверьте приложение.", parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
+                        await botClient.SendMessage(chatId: targetId, text: "✅ *Подписка продлена!*\nЭнергия успешно зачислена на ваш баланс. Проверьте приложение.", parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
                         await botClient.DeleteMessage(chatId, callbackQuery.Message.MessageId, cancellationToken);
                         await botClient.AnswerCallbackQuery(callbackQuery.Id, "Продлено успешно!", cancellationToken: cancellationToken);
                         BotLogger.Log("ACTION", $"Продление успешно завершено.");
