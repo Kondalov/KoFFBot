@@ -67,20 +67,22 @@ function loadLeaderboard() {
             container.innerHTML = '<div style="text-align: center; color: var(--text-muted);">Пока нет рекордов. Станьте первым!</div>';
         } else {
             data.topPlayers.forEach((p, index) => {
-                let rankClass = index === 0 ? 'rank-1' : (index === 1 ? 'rank-2' : (index === 2 ? 'rank-3' : ''));
+                let rankClass = index === 0 ? 'rank-1' : '';
+                let crown = index === 0 ? '<span class="crown">👑</span>' : '';
                 container.innerHTML += `
-                        <div class="lb-item ${rankClass}">
-                            <div class="lb-rank">#${index + 1}</div>
-                            <div class="lb-name">${p.name}</div>
-                            <div class="lb-score">${p.maxScore}</div>
-                        </div>`;
+                    <div class="player-row ${rankClass}">
+                        <div class="player-left">
+                            <div class="player-rank">#${index + 1}</div>
+                            <div class="player-name">${crown} ${p.name}</div>
+                        </div>
+                        <div class="player-score">${p.maxScore}</div>
+                    </div>`;
             });
         }
     }).catch(() => {
         document.getElementById('lbContainer').innerHTML = '<div style="text-align: center; color: var(--danger);">Ошибка загрузки</div>';
     });
 }
-window.loadLeaderboard = loadLeaderboard;
 
 function loadInbox() {
     if (window.userId === 0) return;
@@ -357,3 +359,76 @@ window.claimRetentionBonus = function () {
         window.showToast("🎁 Сундук открыт! Заявка отправлена в Инбокс.");
     }).catch(() => window.showToast("🎁 Сундук открыт, но нет связи с сервером."));
 };
+
+// === ИНТЕЛЛЕКТ ГЕКОНА (ВКЛАДКА РЕЙТИНГ) ===
+let geckoPosX = 100;
+let geckoPosY = 100;
+let geckoAngle = 0;
+let geckoTargetX = Math.random() * window.innerWidth;
+let geckoTargetY = Math.random() * window.innerHeight;
+let isGeckoWaiting = false; // Флаг для предотвращения бага с залипанием таймера
+
+function moveGecko() {
+    const gecko = document.getElementById('gecko');
+    const tab = document.getElementById('tab-leaderboard');
+
+    // Двигаем только если вкладка активна
+    if (gecko && tab && tab.classList.contains('active')) {
+        const dx = geckoTargetX - geckoPosX;
+        const dy = geckoTargetY - geckoPosY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist > 5) {
+            gecko.classList.add('walking');
+            geckoAngle = Math.atan2(dy, dx) + Math.PI / 2;
+            geckoPosX += (dx / dist) * 1.5;
+            geckoPosY += (dy / dist) * 1.5;
+        } else {
+            gecko.classList.remove('walking');
+
+            // ИСПРАВЛЕНИЕ: Запускаем таймер смены цели строго один раз
+            if (!isGeckoWaiting) {
+                isGeckoWaiting = true;
+                setTimeout(() => {
+                    geckoTargetX = Math.random() * (window.innerWidth - 100) + 50;
+                    geckoTargetY = Math.random() * (window.innerHeight - 100) + 50;
+                    isGeckoWaiting = false; // Снимаем блок после выбора новой цели
+                }, 1000);
+            }
+        }
+
+        gecko.style.transform = `translate(${geckoPosX}px, ${geckoPosY}px) rotate(${geckoAngle}rad)`;
+    }
+    requestAnimationFrame(moveGecko);
+}
+
+function handleGeckoLook(clientX, clientY) {
+    const gecko = document.getElementById('gecko');
+    const head = document.getElementById('gecko-head');
+    const tab = document.getElementById('tab-leaderboard');
+
+    if (!gecko || !head || !tab || !tab.classList.contains('active')) return;
+
+    const rect = gecko.getBoundingClientRect();
+    const geckoCenterX = rect.left + rect.width / 2;
+    const geckoCenterY = rect.top + rect.height / 2;
+
+    const angleToMouse = Math.atan2(clientY - geckoCenterY, clientX - geckoCenterX);
+    const relativeAngle = angleToMouse - (geckoAngle - Math.PI / 2);
+
+    // Ограничиваем поворот головы
+    const limitedAngle = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, relativeAngle));
+    head.style.transform = `rotate(${limitedAngle}rad)`;
+}
+
+// Отслеживание мыши (ПК) и пальца (Смартфон)
+document.addEventListener('mousemove', (e) => handleGeckoLook(e.clientX, e.clientY));
+document.addEventListener('touchmove', (e) => {
+    if (e.touches.length > 0) handleGeckoLook(e.touches[0].clientX, e.touches[0].clientY);
+});
+
+// Запуск цикла анимации
+if (!window.geckoInitialized) {
+    window.geckoInitialized = true;
+    moveGecko();
+}
