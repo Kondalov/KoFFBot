@@ -278,42 +278,89 @@ function moveBoss() {
     if (!boss.active || !isGameRunning) return;
 
     let head = snake[0];
-    let distToHead = Math.abs(boss.x - head.x) + Math.abs(boss.y - head.y);
-    let isGodMode = (window.monthlyBossKills >= 2); // Включаем "Неуловимого Босса"
+    let isGodMode = (window.monthlyBossKills >= 2);
 
-    if (!isGodMode && distToHead > 10) {
-        boss.x += (boss.x < tileCount / 2) ? 1 : (boss.x > tileCount / 2 ? -1 : 0);
-        boss.y += (boss.y < tileCount / 2) ? 1 : (boss.y > tileCount / 2 ? -1 : 0);
-        return;
+    // Внутренняя функция: Алгоритм заливки (Flood Fill) для сканирования открытого пространства
+    function getOpenSpace(startX, startY) {
+        let queue = [{ x: startX, y: startY }];
+        let visited = new Set();
+        let count = 0;
+        visited.add(startX + "," + startY);
+
+        // Сканируем до 150 клеток вглубь
+        while (queue.length > 0 && count < 150) {
+            let curr = queue.shift();
+            count++;
+
+            let dirs = [{ dx: 0, dy: -1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 1, dy: 0 }];
+            for (let d of dirs) {
+                let nx = curr.x + d.dx;
+                let ny = curr.y + d.dy;
+
+                if (nx < 0 || nx >= tileCount || ny < 0 || ny >= tileCount) continue;
+                let key = nx + "," + ny;
+                if (visited.has(key)) continue;
+
+                let isSnake = false;
+                for (let i = 0; i < snake.length; i++) {
+                    if (snake[i].x === nx && snake[i].y === ny) { isSnake = true; break; }
+                }
+                if (isSnake) continue;
+
+                visited.add(key);
+                queue.push({ x: nx, y: ny });
+            }
+        }
+        return count;
     }
 
     let moves = [{ dx: 0, dy: -1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 1, dy: 0 }];
     let bestMove = { dx: 0, dy: 0 };
-    let maxScore = -99999;
+    let maxScore = -999999;
 
     for (let m of moves) {
         let nx = boss.x + m.dx;
         let ny = boss.y + m.dy;
 
+        // 1. Проверка: не выход за границы карты
         if (nx < 0 || nx >= tileCount || ny < 0 || ny >= tileCount) continue;
 
+        // 2. Проверка: не самоубийство об змею
+        let hitSnake = false;
+        for (let i = 0; i < snake.length; i++) {
+            if (nx === snake[i].x && ny === snake[i].y) hitSnake = true;
+        }
+        if (hitSnake) continue;
+
+        // Базовые очки: отдаление от головы змеи
         let scoreForMove = Math.abs(nx - head.x) + Math.abs(ny - head.y);
 
-        // === ИСПРАВЛЕНИЕ: Гравитация к центру ===
+        // Гравитация к центру
         let distToCenter = Math.abs(nx - tileCount / 2) + Math.abs(ny - tileCount / 2);
         scoreForMove -= distToCenter * 0.1;
 
-        // === ИСПРАВЛЕНИЕ: Паника в углах ===
+        // Паника в углах (избегание мертвых зон)
         let isCorner = (nx === 0 && ny === 0) || (nx === 0 && ny === tileCount - 1) ||
             (nx === tileCount - 1 && ny === 0) || (nx === tileCount - 1 && ny === tileCount - 1);
         if (isCorner) scoreForMove -= 20;
 
-        // === ИСПРАВЛЕНИЕ: Уклонение от вектора ===
+        // Уклонение от вектора движения змеи
         if (dx !== 0 && m.dy !== 0) scoreForMove += 0.5;
         if (dy !== 0 && m.dx !== 0) scoreForMove += 0.5;
 
+        // === УМНЫЙ АЛГОРИТМ: Оценка свободного пространства ===
+        let openSpace = getOpenSpace(nx, ny);
+
+        if (openSpace < 30) {
+            // Если впереди тупик (мало свободных клеток), даем гигантский штраф
+            scoreForMove -= 500;
+        } else {
+            // Иначе босс получает бонусы за стремление к открытому пространству
+            scoreForMove += openSpace * 2;
+        }
+
         if (isGodMode) {
-            // Бог: предсказывает следующий шаг змеи и боится углов как огня!
+            // В режиме Бога босс учитывает следующий шаг змеи
             let nextHeadX = head.x + dx;
             let nextHeadY = head.y + dy;
             scoreForMove += Math.abs(nx - nextHeadX) + Math.abs(ny - nextHeadY);
@@ -325,13 +372,7 @@ function moveBoss() {
             if (ny === 0 || ny === tileCount - 1) scoreForMove -= 2;
         }
 
-        for (let i = 1; i < snake.length; i++) {
-            if (nx === snake[i].x && ny === snake[i].y) {
-                scoreForMove -= 100; // Никогда не наступает на хвост
-            }
-        }
-
-        if (!isGodMode) scoreForMove += Math.random();
+        scoreForMove += Math.random(); // Доля непредсказуемости
 
         if (scoreForMove > maxScore) {
             maxScore = scoreForMove;
@@ -339,6 +380,7 @@ function moveBoss() {
         }
     }
 
+    // Применяем лучший найденный ход
     boss.x += bestMove.dx;
     boss.y += bestMove.dy;
 }
@@ -424,21 +466,20 @@ function gameLoop() {
             // Босс пойман!
             showGameOver(true); return;
         } else {
-            // Логика уклонения босса (оставлена без изменений)
-            let bossEvadeSpeed = (window.monthlyBossKills >= 2 || elapsedSeconds > 5) ? 1 : 2;
-            if (window.gameTicks % bossEvadeSpeed === 0) moveBoss();
+            // ИСПРАВЛЕНИЕ: Босс ходит синхронно со змейкой (1:1) каждый кадр
+            moveBoss();
 
-            // Логика скорости змейки во время босса (оставлена без изменений)
+            // ИСПРАВЛЕНИЕ: Скорость замедлена в 2 раза. Было 90->40, стало 180->80.
             if (elapsedSeconds <= 5) {
-                speed = 90; // Первые 5 сек: комфортная скорость
+                speed = 180; // Первые 5 сек: медленная тактическая скорость
             } else {
-                // Следующие 15 сек: плавное ускорение от 90ms до 40ms
+                // Следующие 15 сек: плавное ускорение от 180ms до 80ms
                 let progress = (elapsedSeconds - 5) / 15;
-                speed = Math.max(40, 90 - (progress * 50));
+                speed = Math.max(80, 180 - (progress * 100));
             }
         }
     } else {
-        // Обычная игра: СКОРОСТЬ ЗАМЕДЛЕНА В 2 РАЗА (задержка увеличена с 60-150 до 120-300)
+        // Обычная игра
         let baseSpeed = Math.max(120, 300 - ((window.bossKills || 0) * 30));
         speed = Math.max(120, baseSpeed - (score * 0.4));
     }
