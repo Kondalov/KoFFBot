@@ -278,17 +278,18 @@ function moveBoss() {
     if (!boss.active || !isGameRunning) return;
 
     let head = snake[0];
+    let tail = snake[snake.length - 1]; // Вычисляем позицию хвоста
     let isGodMode = (window.monthlyBossKills >= 2);
 
-    // Внутренняя функция: Алгоритм заливки (Flood Fill) для сканирования открытого пространства
+    // Улучшенный Flood Fill - теперь сканирует ВСЮ карту (до 400 клеток)
     function getOpenSpace(startX, startY) {
         let queue = [{ x: startX, y: startY }];
         let visited = new Set();
         let count = 0;
         visited.add(startX + "," + startY);
 
-        // Сканируем до 150 клеток вглубь
-        while (queue.length > 0 && count < 150) {
+        // Лимит увеличен с 150 до 400 (полное поле 20x20)
+        while (queue.length > 0 && count < 400) {
             let curr = queue.shift();
             count++;
 
@@ -316,7 +317,11 @@ function moveBoss() {
 
     let moves = [{ dx: 0, dy: -1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 1, dy: 0 }];
     let bestMove = { dx: 0, dy: 0 };
-    let maxScore = -999999;
+    let maxScore = -9999999;
+    let validMovesExist = false;
+
+    // Вычисляем, где будет голова змеи в следующем кадре
+    let nextHead = { x: head.x + dx, y: head.y + dy };
 
     for (let m of moves) {
         let nx = boss.x + m.dx;
@@ -325,54 +330,48 @@ function moveBoss() {
         // 1. Проверка: не выход за границы карты
         if (nx < 0 || nx >= tileCount || ny < 0 || ny >= tileCount) continue;
 
-        // 2. Проверка: не самоубийство об змею
+        // 2. Проверка: не самоубийство об тело змеи
         let hitSnake = false;
         for (let i = 0; i < snake.length; i++) {
             if (nx === snake[i].x && ny === snake[i].y) hitSnake = true;
         }
         if (hitSnake) continue;
 
-        // Базовые очки: отдаление от головы змеи
-        let scoreForMove = Math.abs(nx - head.x) + Math.abs(ny - head.y);
+        validMovesExist = true;
+        let scoreForMove = 0;
 
-        // Гравитация к центру
-        let distToCenter = Math.abs(nx - tileCount / 2) + Math.abs(ny - tileCount / 2);
-        scoreForMove -= distToCenter * 0.1;
+        // 3. ГЛАВНЫЙ ПРИОРИТЕТ: Максимальное открытое пространство
+        // Босс всегда выберет путь, где свободных клеток больше всего
+        let openSpace = getOpenSpace(nx, ny);
+        scoreForMove += openSpace * 1000;
 
-        // Паника в углах (избегание мертвых зон)
+        // 4. Избегание головы змеи (Особенно следующего шага)
+        let distToNextHead = Math.abs(nx - nextHead.x) + Math.abs(ny - nextHead.y);
+        if (distToNextHead <= 1) scoreForMove -= 50000; // Смерть в следующем кадре (КРИТИЧЕСКИ)
+        if (distToNextHead === 2) scoreForMove -= 10000; // Слишком близко
+        scoreForMove += distToNextHead * 100; // Чем дальше от головы, тем лучше
+
+        // 5. Мгновенное уклонение с линии атаки
+        if (dx !== 0 && ny === head.y) scoreForMove -= 5000; // Срочно уйти с горизонтали
+        if (dy !== 0 && nx === head.x) scoreForMove -= 5000; // Срочно уйти с вертикали
+
+        // 6. Стремление к хвосту (Хвост двигается и освобождает место, это самая безопасная зона)
+        let distToTail = Math.abs(nx - tail.x) + Math.abs(ny - tail.y);
+        scoreForMove -= distToTail * 10;
+
+        // 7. Защита от тупых углов (только если босс в безопасности, он избегает углов)
         let isCorner = (nx === 0 && ny === 0) || (nx === 0 && ny === tileCount - 1) ||
             (nx === tileCount - 1 && ny === 0) || (nx === tileCount - 1 && ny === tileCount - 1);
-        if (isCorner) scoreForMove -= 20;
+        if (isCorner) scoreForMove -= 2000;
 
-        // Уклонение от вектора движения змеи
-        if (dx !== 0 && m.dy !== 0) scoreForMove += 0.5;
-        if (dy !== 0 && m.dx !== 0) scoreForMove += 0.5;
-
-        // === УМНЫЙ АЛГОРИТМ: Оценка свободного пространства ===
-        let openSpace = getOpenSpace(nx, ny);
-
-        if (openSpace < 30) {
-            // Если впереди тупик (мало свободных клеток), даем гигантский штраф
-            scoreForMove -= 500;
-        } else {
-            // Иначе босс получает бонусы за стремление к открытому пространству
-            scoreForMove += openSpace * 2;
-        }
-
+        // 8. Режим Бога (Идеальное предсказание на 2 шага вперед)
         if (isGodMode) {
-            // В режиме Бога босс учитывает следующий шаг змеи
-            let nextHeadX = head.x + dx;
-            let nextHeadY = head.y + dy;
-            scoreForMove += Math.abs(nx - nextHeadX) + Math.abs(ny - nextHeadY);
-
-            if (nx === 0 || nx === tileCount - 1) scoreForMove -= 50;
-            if (ny === 0 || ny === tileCount - 1) scoreForMove -= 50;
-        } else {
-            if (nx === 0 || nx === tileCount - 1) scoreForMove -= 2;
-            if (ny === 0 || ny === tileCount - 1) scoreForMove -= 2;
+            let nextNextHead = { x: nextHead.x + dx, y: nextHead.y + dy };
+            let distToNextNextHead = Math.abs(nx - nextNextHead.x) + Math.abs(ny - nextNextHead.y);
+            if (distToNextNextHead <= 2) scoreForMove -= 20000;
         }
 
-        scoreForMove += Math.random(); // Доля непредсказуемости
+        scoreForMove += Math.random() * 10; // Микро-непредсказуемость, чтобы босс не зациклился
 
         if (scoreForMove > maxScore) {
             maxScore = scoreForMove;
@@ -380,9 +379,10 @@ function moveBoss() {
         }
     }
 
-    // Применяем лучший найденный ход
-    boss.x += bestMove.dx;
-    boss.y += bestMove.dy;
+    if (validMovesExist) {
+        boss.x += bestMove.dx;
+        boss.y += bestMove.dy;
+    }
 }
 
 async function showGameOver(wonBoss) {
@@ -457,29 +457,26 @@ function gameLoop() {
         let elapsedSeconds = (Date.now() - window.bossSpawnTime) / 1000;
 
         if (elapsedSeconds > 20) {
-            // ТАЙМ-АУТ! Босс сбежал!
             boss.active = false;
-            window.bossKills = (window.bossKills || 0) + 1; // Увеличиваем цель (усложняем), но без выдачи 7 дней!
+            window.bossKills = (window.bossKills || 0) + 1;
             updateScoreUI();
             window.showToast("Вирус скрылся! Продолжаем взлом...");
         } else if (Math.abs(head.x - boss.x) <= 1 && Math.abs(head.y - boss.y) <= 1) {
-            // Босс пойман!
             showGameOver(true); return;
         } else {
-            // ИСПРАВЛЕНИЕ: Босс ходит синхронно со змейкой (1:1) каждый кадр
+            // Босс всегда делает 1 шаг на 1 твой шаг
             moveBoss();
 
-            // ИСПРАВЛЕНИЕ: Скорость замедлена в 2 раза. Было 90->40, стало 180->80.
+            // ИСПРАВЛЕНИЕ: Тактическое замедление времени. 
+            // Первые 5 секунд - очень медленно (250ms), затем ускорение максимум до 140ms
             if (elapsedSeconds <= 5) {
-                speed = 180; // Первые 5 сек: медленная тактическая скорость
+                speed = 250;
             } else {
-                // Следующие 15 сек: плавное ускорение от 180ms до 80ms
                 let progress = (elapsedSeconds - 5) / 15;
-                speed = Math.max(80, 180 - (progress * 100));
+                speed = Math.max(140, 250 - (progress * 110));
             }
         }
     } else {
-        // Обычная игра
         let baseSpeed = Math.max(120, 300 - ((window.bossKills || 0) * 30));
         speed = Math.max(120, baseSpeed - (score * 0.4));
     }
