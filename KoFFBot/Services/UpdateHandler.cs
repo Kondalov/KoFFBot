@@ -85,7 +85,7 @@ public class UpdateHandler : IUpdateHandler
 
         if (message.Text.StartsWith("/start"))
         {
-            var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://3acd4e44cd5689.lhr.life" }) } }; // ВСТАВЬ СВОЮ ССЫЛКУ
+            var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://899d40834dc795.lhr.life" }) } }; // ВСТАВЬ СВОЮ ССЫЛКУ
             await botClient.SendMessage(chatId: message.Chat.Id, text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение.", replyMarkup: new InlineKeyboardMarkup(buttons), cancellationToken: cancellationToken);
         }
     }
@@ -137,18 +137,21 @@ public class UpdateHandler : IUpdateHandler
             {
                 string targetId = data.Replace("renew_", "");
                 BotLogger.Log("ACTION", $"Смена клавиатуры на тарифы для ID: {targetId}");
+
+                // === ИСПРАВЛЕНИЕ: Добавлены кнопки энергоблоков ===
                 var kb = new InlineKeyboardMarkup(new[] {
-                    new[] { InlineKeyboardButton.WithCallbackData("1 Месяц (+100⚡)", $"t1_{targetId}"), InlineKeyboardButton.WithCallbackData("3 Месяца (+350⚡)", $"t3_{targetId}") },
-                    new[] { InlineKeyboardButton.WithCallbackData("6 Месяцев (+1000⚡)", $"t6_{targetId}"), InlineKeyboardButton.WithCallbackData("❌ Отмена", $"hide_{targetId}") }
+                    new[] { InlineKeyboardButton.WithCallbackData("1 Мес (+100⚡)", $"t1_{targetId}"), InlineKeyboardButton.WithCallbackData("3 Мес (+350⚡)", $"t3_{targetId}") },
+                    new[] { InlineKeyboardButton.WithCallbackData("6 Мес (+1000⚡)", $"t6_{targetId}") },
+                    new[] { InlineKeyboardButton.WithCallbackData("🔋 +100⚡", $"e100_{targetId}"), InlineKeyboardButton.WithCallbackData("⚡ +300⚡", $"e300_{targetId}"), InlineKeyboardButton.WithCallbackData("☢️ +1000⚡", $"e1000_{targetId}") },
+                    new[] { InlineKeyboardButton.WithCallbackData("❌ Отмена", $"hide_{targetId}") }
                 });
+
                 await botClient.EditMessageReplyMarkup(chatId, callbackQuery.Message.MessageId, replyMarkup: kb, cancellationToken: cancellationToken);
                 return;
             }
             else if (data.StartsWith("t1_") || data.StartsWith("t3_") || data.StartsWith("t6_"))
             {
                 int months = data.StartsWith("t1_") ? 1 : (data.StartsWith("t3_") ? 3 : 6);
-
-                // === УМНАЯ ЗАЩИТА: Начисляем энергию в зависимости от тарифа ===
                 int energyBonus = data.StartsWith("t1_") ? 100 : (data.StartsWith("t3_") ? 350 : 1000);
 
                 BotLogger.Log("ACTION", $"Запрос на продление на {months} мес. и выдачу {energyBonus} энергии. Data: {data}");
@@ -162,7 +165,6 @@ public class UpdateHandler : IUpdateHandler
                         sub.ExpiryDate = baseDate.AddDays(months * 30);
                         sub.SyncStatus = SyncStatus.PendingUpdate;
 
-                        // Обновляем энергию с переподписью античита!
                         var profile = await dbContext.GameProfiles.FirstOrDefaultAsync(p => p.TelegramId == targetId, cancellationToken);
                         if (profile != null)
                         {
@@ -187,6 +189,39 @@ public class UpdateHandler : IUpdateHandler
                     {
                         BotLogger.Log("ERROR", $"Активный ключ для {targetId} не найден в БД!");
                         await botClient.AnswerCallbackQuery(callbackQuery.Id, "Ошибка: Активный ключ не найден.", showAlert: true, cancellationToken: cancellationToken);
+                    }
+                }
+                return;
+            }
+            // === ИСПРАВЛЕНИЕ: Логика выдачи ТОЛЬКО Энергоблоков ===
+            else if (data.StartsWith("e100_") || data.StartsWith("e300_") || data.StartsWith("e1000_"))
+            {
+                int energyBonus = data.StartsWith("e100_") ? 100 : (data.StartsWith("e300_") ? 300 : 1000);
+                string prefixLength = data.StartsWith("e100_") ? "e100_" : (data.StartsWith("e300_") ? "e300_" : "e1000_");
+
+                BotLogger.Log("ACTION", $"Запрос на выдачу {energyBonus} энергии. Data: {data}");
+
+                if (long.TryParse(data.Replace(prefixLength, ""), out long targetId))
+                {
+                    var profile = await dbContext.GameProfiles.FirstOrDefaultAsync(p => p.TelegramId == targetId, cancellationToken);
+                    if (profile != null)
+                    {
+                        profile.CurrentEnergy += energyBonus;
+                        profile.EnergySignature = KoFFBot.Security.AntiCheatSigner.GenerateSignature(targetId, profile.CurrentEnergy);
+
+                        dbContext.SupportMessages.Add(new SupportMessage { TelegramId = targetId, Text = $"✅ Ваш энергоблок успешно активирован!\n⚡ Начислено: +{energyBonus} энергии", IsFromAdmin = true, IsRead = false, CreatedAt = DateTime.UtcNow });
+
+                        await dbContext.SaveChangesAsync(cancellationToken);
+
+                        await botClient.SendMessage(chatId: targetId, text: $"✅ *Энергия зачислена!*\n+{energyBonus} ⚡ успешно добавлено на ваш баланс. Проверьте приложение.", parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
+                        await botClient.DeleteMessage(chatId, callbackQuery.Message.MessageId, cancellationToken);
+                        await botClient.AnswerCallbackQuery(callbackQuery.Id, "Энергия выдана!", cancellationToken: cancellationToken);
+                        BotLogger.Log("ACTION", $"Выдача энергии успешно завершена.");
+                    }
+                    else
+                    {
+                        BotLogger.Log("ERROR", $"Профиль для {targetId} не найден в БД!");
+                        await botClient.AnswerCallbackQuery(callbackQuery.Id, "Ошибка: Профиль игры не найден.", showAlert: true, cancellationToken: cancellationToken);
                     }
                 }
                 return;

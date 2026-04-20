@@ -160,7 +160,11 @@ function loadProfile(isSilent = false) {
         window.isAdmin = data.isAdmin === true;
         window.GAME_SECRET = data.gameSecret || "";
 
-        document.getElementById('userIdDisplay').innerText = data.telegramId || window.userId; document.getElementById('refCount').innerText = (data.referralCount || 0) + " друзей";
+        document.getElementById('userIdDisplay').innerText = data.telegramId || window.userId;
+        document.getElementById('refCount').innerText = (data.referralCount || 0) + " друзей";
+
+        // === ВЫЗОВ ПРОВЕРКИ УМНЫХ СУНДУКОВ ===
+        if (window.checkChests) window.checkChests(data.referralCount || 0);
 
         if (data.hasSubscription) {
             document.getElementById('state-no-sub').style.display = 'none'; document.getElementById('state-has-sub').style.display = 'block'; document.getElementById('userName').innerText = data.firstName || "Пользователь";
@@ -267,4 +271,89 @@ window.handleResetBossTap = function () {
                 setTimeout(() => window.loadProfile(true), 500);
             }).catch(() => { window.tg.showAlert("Ошибка связи с сервером."); });
     }
+};
+
+// === МЕНЕДЖЕР СЕКРЕТНЫХ СУНДУКОВ (Daily, Рефералы, Happy Hours, Удержание) ===
+window.currentChestReason = "";
+
+window.checkChests = function (refCount) {
+    const chestEl = document.getElementById('retentionChest');
+    if (!chestEl || chestEl.style.display === 'block') return; // Если уже висит - не перебиваем
+
+    const today = new Date().toDateString();
+
+    // 1. Ежедневный бонус
+    const lastDaily = localStorage.getItem('koff_daily_chest');
+    if (lastDaily !== today) {
+        window.currentChestReason = "Ежедневный вход в приложение.";
+        showChestAnimation(chestEl);
+        return;
+    }
+
+    // 2. Реферальные рубежи
+    const claimedRefs = parseInt(localStorage.getItem('koff_ref_chest') || '0');
+    const milestones = [1, 3, 5, 10];
+    for (let m of milestones) {
+        if (refCount >= m && claimedRefs < m) {
+            window.currentChestReason = `Реферальный рубеж! Приглашено ${m} друзей.`;
+            localStorage.setItem('koff_ref_chest_pending', m.toString());
+            showChestAnimation(chestEl);
+            return;
+        }
+    }
+
+    // 3. Счастливые часы (Вторник и Пятница с 18:00 до 20:00 UTC)
+    const now = new Date();
+    const day = now.getUTCDay(); // 0=Вс, 2=Вт, 5=Пт
+    const hour = now.getUTCHours();
+    if ((day === 2 || day === 5) && (hour >= 18 && hour < 20)) {
+        const lastHappyHour = localStorage.getItem('koff_happy_hour_chest');
+        if (lastHappyHour !== today) {
+            window.currentChestReason = "Счастливые часы! Попал в окно раздачи (18:00-20:00).";
+            showChestAnimation(chestEl);
+            return;
+        }
+    }
+};
+
+function showChestAnimation(chest) {
+    chest.style.display = 'block';
+    chest.style.animation = 'pop 0.5s ease-out forwards, chestFloat 2s infinite ease-in-out 0.5s, chestGlow 2s infinite alternate 0.5s';
+}
+
+// 4. Удержание (10-15 минут) - фоновый таймер
+if (!window.retentionTimerStarted) {
+    window.retentionTimerStarted = true;
+    let chestDelayMinutes = Math.floor(Math.random() * (15 - 10 + 1)) + 10;
+    setTimeout(() => {
+        const chest = document.getElementById('retentionChest');
+        if (chest && chest.style.display !== 'block') {
+            window.currentChestReason = "Награда за удержание! Провел в приложении >10 минут.";
+            showChestAnimation(chest);
+        }
+    }, chestDelayMinutes * 60 * 1000);
+}
+
+window.claimRetentionBonus = function () {
+    const chest = document.getElementById('retentionChest');
+    if (chest) chest.style.display = 'none';
+
+    let msgText = `🎁 СЕКРЕТНЫЙ СУНДУК:\n${window.currentChestReason}\nПрошу зачислить бонусную энергию.`;
+
+    // Обновляем localStorage в зависимости от того, что выдали
+    const today = new Date().toDateString();
+    if (window.currentChestReason.includes("Ежедневный")) localStorage.setItem('koff_daily_chest', today);
+    if (window.currentChestReason.includes("Счастливые")) localStorage.setItem('koff_happy_hour_chest', today);
+    if (window.currentChestReason.includes("Реферальный")) {
+        let pending = localStorage.getItem('koff_ref_chest_pending');
+        if (pending) localStorage.setItem('koff_ref_chest', pending);
+    }
+
+    fetch('/api/webapp/send_message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ TelegramId: window.userId, Text: msgText })
+    }).then(() => {
+        window.showToast("🎁 Сундук открыт! Заявка отправлена в Инбокс.");
+    }).catch(() => window.showToast("🎁 Сундук открыт, но нет связи с сервером."));
 };

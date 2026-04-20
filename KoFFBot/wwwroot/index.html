@@ -6,6 +6,7 @@
     <title>KoFFPanel App</title>
     <link rel="stylesheet" href="assets/css/styles.css">
     <style>
+        /* Адаптивное модальное окно */
         .info-modal-overlay {
             position: fixed;
             top: 0;
@@ -26,7 +27,10 @@
             border: 1px solid var(--accent-cyan);
             border-radius: 20px;
             padding: 24px;
+            width: 90%;
             max-width: 400px;
+            max-height: 85vh;
+            overflow-y: auto;
             box-shadow: 0 0 20px rgba(0, 242, 255, 0.2);
             position: relative;
         }
@@ -40,11 +44,166 @@
             color: var(--text-muted);
             font-size: 24px;
             cursor: pointer;
+            z-index: 10;
         }
 
-            .info-modal-close:active {
-                color: var(--danger);
+        /* Анимации Bento UI и Сундука */
+        @keyframes bentoBreathe {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 0.8;
             }
+
+            50% {
+                transform: scale(1.08);
+                opacity: 1;
+                filter: drop-shadow(0px 6px 15px rgba(0, 240, 255, 0.6));
+            }
+        }
+
+        @keyframes bentoFloat {
+            0%, 100% {
+                transform: translateY(0px) rotate(0deg);
+            }
+
+            50% {
+                transform: translateY(-6px) rotate(2deg);
+            }
+        }
+
+        @keyframes bentoDataStream {
+            100% {
+                left: 200%;
+            }
+        }
+
+        @keyframes bentoPulseGlow {
+            0%, 100% {
+                box-shadow: 0 0 5px rgba(217, 70, 239, 0.2);
+            }
+
+            50% {
+                box-shadow: 0 0 15px rgba(217, 70, 239, 0.6);
+            }
+        }
+
+        @keyframes chestFloat {
+            0%, 100% {
+                transform: translateY(0px) scale(1);
+            }
+
+            50% {
+                transform: translateY(-5px) scale(1.1);
+            }
+        }
+
+        @keyframes chestGlow {
+            from {
+                filter: drop-shadow(0 0 5px rgba(255, 215, 0, 0.5));
+            }
+
+            to {
+                filter: drop-shadow(0 0 20px rgba(255, 215, 0, 1));
+            }
+        }
+
+        /* Стили сетки Bento */
+        .bento-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .bento-card {
+            background: #1c1c1e;
+            border-radius: 24px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-height: 170px;
+            position: relative;
+            box-shadow: inset 0 0 15px rgba(255,255,255,0.02);
+        }
+
+        .bento-card-purple {
+            background: linear-gradient(145deg, #1c1c1e, #221c24);
+        }
+
+        .bento-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 4px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .bento-title {
+            font-size: 11px;
+            font-weight: 800;
+            color: #8e8e93;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            line-height: 1.2;
+        }
+
+        .bento-value {
+            font-size: clamp(18px, 5.5vw, 24px);
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 2px;
+        }
+
+        .bento-sub {
+            font-size: 11px;
+            margin-top: auto; /* Прижимает текст к низу (над треком) */
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .bento-track {
+            height: 6px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.05);
+            width: 100%;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .bento-time-fill {
+            background: linear-gradient(90deg, #9b51e0, #d946ef);
+            animation: bentoPulseGlow 2.5s infinite;
+            height: 100%;
+        }
+
+        .bento-data-stream {
+            background: linear-gradient(90deg, #00c6ff, #0072ff);
+            position: relative;
+            height: 100%;
+        }
+
+            .bento-data-stream::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 50%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+                animation: bentoDataStream 2s infinite linear;
+            }
+
+        .bento-icon-center {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 5px 0;
+        }
     </style>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
@@ -54,7 +213,6 @@
 
     <div id="gameOverlay" class="game-overlay">
         <div class="countdown-overlay" id="countdownOverlay" style="display:none;">5</div>
-
         <div class="game-top-bar">
             <div class="game-stats">
                 <div class="game-level" id="gameLevel">УР. 1</div>
@@ -62,10 +220,8 @@
             </div>
             <button class="close-game-btn" onclick="exitGame()">✖</button>
         </div>
-
         <div class="canvas-container">
             <canvas id="gameCanvas" width="300" height="300"></canvas>
-
             <div id="gameOverOverlay" class="game-over-overlay">
                 <h2 id="goTitle" style="color:var(--danger)">ВЗЛОМ ПРЕРВАН</h2>
                 <p style="margin-bottom: 20px;">Счет: <span id="goScore" style="color:var(--accent-cyan); font-family:monospace; font-size:24px;">0</span></p>
@@ -73,7 +229,6 @@
                 <button class="btn btn-outline" style="padding:12px; max-width:80%; border-color:var(--card-border);" onclick="exitGame()">Главное меню</button>
             </div>
         </div>
-
         <div class="d-pad-container">
             <div class="d-pad">
                 <div class="d-btn d-up" ontouchstart="setDir(0, -1)" onmousedown="setDir(0, -1)">▲</div>
@@ -94,115 +249,72 @@
 
         <div id="state-has-sub" style="display: none;">
             <div class="glass-card">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <h1 id="userName">Профиль</h1>
-                    <span style="font-family: monospace; color: var(--accent-purple); cursor: pointer;" onclick="window.handleResetBossTap()">ID: <span id="userIdDisplay">...</span></span>
-                </div>
-
-                <div class="stat-grid" style="grid-template-columns: 1fr 1fr; margin-bottom: 15px;">
-                    <div class="stat-box">
-                        <div class="stat-label">Остаток времени</div>
-                        <div class="stat-value" id="daysLeft">0</div>
-                        <div class="stat-sub" id="expiryDateText">...</div>
-                        <div class="progress-track"><div class="progress-fill fill-purple" id="timeBar" style="width: 0%;"></div></div>
+                <div style="position: relative; margin-bottom: 25px;">
+                    <div id="retentionChest" style="display: none; position: absolute; top: -15px; right: -10px; cursor: pointer; animation: chestFloat 2s infinite ease-in-out, chestGlow 2s infinite alternate; z-index: 100;" onclick="window.claimRetentionBonus()">
+                        <span style="font-size: 48px; filter: drop-shadow(0 0 15px rgba(255, 215, 0, 1));">🎁</span>
                     </div>
 
-                    <div class="stat-box">
-                        <div class="stat-label">Трафик</div>
-                        <div class="stat-value" id="trafficValue">0<span class="stat-unit">Б</span></div>
-                        <div class="stat-sub" id="trafficSub">из 0 Б</div>
-                        <div class="progress-track"><div class="progress-fill fill-cyan" id="trafficBar" style="width: 0%;"></div></div>
-                    </div>
+                    <h1 id="userName" style="margin-bottom: 2px;">Профиль</h1>
+                    <div style="font-family: monospace; color: var(--accent-purple); cursor: pointer; font-size: 14px; opacity: 0.8;" onclick="window.handleResetBossTap()">ID: <span id="userIdDisplay">...</span></div>
                 </div>
 
-                <style>
-                    .info-modal-overlay {
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        background: rgba(0,0,0,0.85);
-                        display: none;
-                        justify-content: center;
-                        align-items: center;
-                        z-index: 3000;
-                        padding: 20px;
-                        backdrop-filter: blur(10px);
-                    }
+                <div class="bento-grid">
+                    <div class="bento-card">
+                        <div class="bento-title">Остаток времени</div>
+                        <div class="bento-value" id="daysLeft">0</div>
+                        <div class="bento-sub" style="color: var(--accent-purple);" id="expiryDateText">...</div>
+                        <div class="bento-track"><div class="bento-time-fill" id="timeBar" style="width: 0%;"></div></div>
+                    </div>
 
-                    .info-modal-content {
-                        background: var(--bg-color);
-                        border: 1px solid var(--accent-cyan);
-                        border-radius: 20px;
-                        padding: 24px;
-                        width: 90%; /* Адаптивная ширина */
-                        max-width: 400px;
-                        max-height: 85vh; /* Ограничение высоты экрана */
-                        overflow-y: auto; /* Включаем внутренний скролл */
-                        box-shadow: 0 0 20px rgba(0, 242, 255, 0.2);
-                        position: relative;
-                    }
-
-                    .info-modal-close {
-                        position: absolute;
-                        top: 15px;
-                        right: 15px;
-                        background: transparent;
-                        border: none;
-                        color: var(--text-muted);
-                        font-size: 24px;
-                        cursor: pointer;
-                        z-index: 10;
-                    }
-
-                        .info-modal-close:active {
-                            color: var(--danger);
-                        }
-                </style>
-                <div class="stat-grid" style="grid-template-columns: 1fr 1fr;">
-                    <div class="stat-box" style="padding: 18px; display: flex; flex-direction: column; justify-content: space-between; border-radius: 24px; overflow: hidden; position: relative;">
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
-                            <div class="stat-label" style="margin: 0; font-size: 11px;">Сеть</div>
-                            <div class="stat-label" style="color: #fff; margin: 0; font-size: 13px; text-transform: none;" id="refCount">0 друзей</div>
+                    <div class="bento-card">
+                        <div class="bento-title">Трафик</div>
+                        <div class="bento-value" id="trafficValue">0</div>
+                        <div class="bento-sub" style="color: var(--accent-cyan);">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.6 6.62c-1.44 0-2.8.56-3.77 1.53L12 10.66 10.48 12h.01L7.8 14.39c-.64.64-1.49.99-2.4.99-1.87 0-3.39-1.51-3.39-3.38S3.53 8.62 5.4 8.62c.91 0 1.76.35 2.44 1.03l1.13 1 1.51-1.34L9.22 8.2C8.2 7.18 6.84 6.62 5.4 6.62 2.42 6.62 0 9.04 0 12s2.42 5.38 5.4 5.38c1.44 0 2.8-.56 3.77-1.53l2.83-2.5.01.01L13.52 12h-.01l2.69 2.39c.64.64 1.49.99 2.4.99 1.87 0 3.39-1.51 3.39-3.38s-1.52-3.38-3.39-3.38c-.9 0-1.76.35-2.44 1.03l-1.14 1-1.51-1.34 1.27-1.12c1.02-1.01 2.37-1.57 3.82-1.57 2.98 0 5.4 2.41 5.4 5.38s-2.42 5.39-5.4 5.39c-.01 0-.01 0 0 0z" /></svg>
+                            <span id="trafficSub">...</span>
                         </div>
+                        <div class="bento-track"><div class="bento-data-stream" id="trafficBar" style="width: 0%;"></div></div>
+                    </div>
 
-                        <div style="flex-grow: 1; display: flex; justify-content: center; align-items: center; padding: 10px 0; min-height: 70px;">
-                            <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" style="width: 48px; height: 48px; color: var(--accent-cyan); filter: drop-shadow(0px 4px 10px rgba(0, 242, 255, 0.3)); animation: breathe 4s ease-in-out infinite;">
+                    <div class="bento-card">
+                        <div class="bento-header">
+                            <div class="bento-title">Сеть</div>
+                            <div style="font-size: 12px; font-weight: 600; color: #fff;" id="refCount">...</div>
+                        </div>
+                        <div class="bento-icon-center">
+                            <svg viewBox="0 0 24 24" fill="currentColor" style="width: 44px; height: 44px; color: #00f0ff; filter: drop-shadow(0px 4px 10px rgba(0, 240, 255, 0.3)); animation: bentoBreathe 4s ease-in-out infinite;">
                                 <path d="M16 11C17.66 11 18.99 9.66 18.99 8C18.99 6.34 17.66 5 16 5C14.34 5 13 6.34 13 8C13 9.66 14.34 11 16 11ZM8 11C9.66 11 10.99 9.66 10.99 8C10.99 6.34 9.66 5 8 5C6.34 5 5 6.34 5 8C5 9.66 6.34 11 8 11ZM8 13C5.67 13 1 14.17 1 16.5V19H15V16.5C15 14.17 10.33 13 8 13ZM16 13C15.71 13 15.38 13.02 15.03 13.05C16.19 13.89 17 15.02 17 16.5V19H23V16.5C23 14.17 18.33 13 16 13Z" />
                             </svg>
                         </div>
-
-                        <button class="btn" style="background: rgba(0, 242, 255, 0.1); color: var(--accent-cyan); border: 1px solid rgba(0, 242, 255, 0.2); padding: 12px; font-size: 12px; font-weight: 800; border-radius: 16px; margin-top: auto; text-transform: uppercase; width: 100%; transition: transform 0.2s ease;" onclick="showRefLink()" onmousedown="this.style.transform='scale(0.97)'" onmouseup="this.style.transform='scale(1)'" onmouseleave="this.style.transform='scale(1)'" ontouchstart="this.style.transform='scale(0.97)'" ontouchend="this.style.transform='scale(1)'">Позвать</button>
+                        <button class="btn" style="background: rgba(0, 240, 255, 0.1); color: #00f0ff; border: 1px solid rgba(0, 240, 255, 0.2); padding: 10px; font-size: 11px; font-weight: 800; border-radius: 16px; margin-top: auto; text-transform: uppercase;" onclick="showRefLink()">Позвать</button>
                     </div>
 
-                    <div class="stat-box" style="padding: 18px; display: flex; flex-direction: column; justify-content: space-between; border-radius: 24px; background: linear-gradient(145deg, rgba(0,0,0,0.4), rgba(189, 147, 249, 0.15)); border-color: rgba(189, 147, 249, 0.3); overflow: hidden; position: relative;">
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; position: relative;">
-                            <div class="stat-label" style="color: var(--accent-purple); cursor: pointer; margin: 0; font-size: 11px; z-index: 2;" onclick="window.handleCheatTap()">Токены взлома</div>
+                    <div class="bento-card bento-card-purple" style="overflow: visible;">
+                        <div style="position: absolute; top: -8px; right: -8px; background: rgba(189, 147, 249, 0.9); color: #fff; border-radius: 50%; width: 22px; height: 22px; display: flex; justify-content: center; align-items: center; font-size: 13px; font-weight: bold; cursor: pointer; z-index: 10; box-shadow: 0 4px 10px rgba(0,0,0,0.5);" onclick="toggleInfoModal()">?</div>
 
-                            <div style="position: absolute; top: -5px; right: -5px; background: rgba(189, 147, 249, 0.2); color: var(--accent-purple); border-radius: 50%; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; font-size: 11px; font-weight: bold; cursor: pointer; z-index: 5;" onclick="toggleInfoModal()">?</div>
-
-                            <div style="font-size: 14px; font-weight: 800; color: #e9bfff; background: rgba(189, 147, 249, 0.2); padding: 4px 10px; border-radius: 12px; box-shadow: 0 0 10px rgba(189, 147, 249, 0.1); display: flex; align-items: baseline; gap: 3px; margin-right: 18px; z-index: 2;">
-                                <span id="energyValue">0</span><span style="font-size: 10px;">⚡</span>
+                        <div class="bento-header">
+                            <div class="bento-title" style="cursor: pointer; max-width: 60px;" onclick="window.handleCheatTap()">Токены<br>взлома</div>
+                            <div style="font-size: 14px; font-weight: 800; color: #e9bfff; background: rgba(155, 81, 224, 0.2); padding: 4px 8px; border-radius: 12px; display: flex; align-items: baseline; gap: 2px;">
+                                <span id="energyValue" style="font-size: 15px;">0</span><span style="font-size: 10px;">⚡</span>
                             </div>
                         </div>
-
-                        <div style="flex-grow: 1; display: flex; justify-content: center; align-items: center; padding: 10px 0; min-height: 70px;">
-                            <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" style="width: 54px; height: 54px; color: var(--accent-purple); filter: drop-shadow(0px 4px 12px rgba(189, 147, 249, 0.4)); animation: float 3s ease-in-out infinite;">
+                        <div class="bento-icon-center">
+                            <svg viewBox="0 0 24 24" fill="currentColor" style="width: 50px; height: 50px; color: #d946ef; filter: drop-shadow(0px 4px 12px rgba(217, 70, 239, 0.4)); animation: bentoFloat 3s ease-in-out infinite;">
                                 <path d="M21.58 7.19C21.18 5.76 19.96 4.72 18.5 4.5L12 3.48L5.5 4.5C4.04 4.72 2.82 5.76 2.42 7.19L1.13 11.83C0.76 13.16 1.05 14.6 2.02 15.63L3.5 17.2C4.19 17.93 5.35 17.97 6.08 17.29L8 15.5H16L17.92 17.29C18.65 17.97 19.81 17.93 20.5 17.2L21.98 15.63C22.95 14.6 23.24 13.16 22.87 11.83L21.58 7.19ZM8.5 10.5H7V12C7 12.55 6.55 13 6 13C5.45 13 5 12.55 5 12V10.5H3.5C2.95 10.5 2.5 10.05 2.5 9.5C2.5 8.95 2.95 8.5 3.5 8.5H5V7C5 6.45 5.45 6 6 6C6.55 6 7 6.45 7 7V8.5H8.5C9.05 8.5 9.5 8.95 9.5 9.5C9.5 10.05 9.05 10.5 8.5 10.5ZM16.5 11.5C15.67 11.5 15 10.83 15 10C15 9.17 15.67 8.5 16.5 8.5C17.33 8.5 18 9.17 18 10C18 10.83 17.33 11.5 16.5 11.5ZM19 8.5C18.17 8.5 17.5 7.83 17.5 7C17.5 6.17 18.17 5.5 19 5.5C19.83 5.5 20.5 6.17 20.5 7C20.5 7.83 19.83 8.5 19 8.5Z" />
                             </svg>
                         </div>
-
-                        <button class="btn btn-game" style="background: var(--accent-purple); color: #fff; box-shadow: 0 4px 15px rgba(189, 147, 249, 0.3); padding: 12px; font-size: 12px; font-weight: 800; border-radius: 16px; border: none; margin-top: auto; text-transform: uppercase; width: 100%; transition: transform 0.2s ease;" onclick="startGameUi()" onmousedown="this.style.transform='scale(0.97)'" onmouseup="this.style.transform='scale(1)'" onmouseleave="this.style.transform='scale(1)'" ontouchstart="this.style.transform='scale(0.97)'" ontouchend="this.style.transform='scale(1)'">Взлом (1 ⚡)</button>
+                        <button class="btn btn-game" style="background: #d946ef; color: #fff; border: none; padding: 8px; border-radius: 16px; margin-top: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;" onclick="startGameUi()">
+                            <span style="font-size: 12px; font-weight: 900; text-transform: uppercase;">Взлом</span>
+                            <span style="font-size: 10px; opacity: 0.9;">(1 ⚡)</span>
+                        </button>
                     </div>
                 </div>
             </div>
 
-            <div class="glass-card" onclick="copyKey()" style="cursor: pointer; text-align: center; border: 1px solid rgba(0, 242, 255, 0.4); box-shadow: inset 0 0 25px rgba(0, 242, 255, 0.1), 0 8px 20px rgba(0,0,0,0.4); padding: 30px 20px; transition: transform 0.2s ease;" onmousedown="this.style.transform='scale(0.96)'" onmouseup="this.style.transform='scale(1)'" onmouseleave="this.style.transform='scale(1)'" ontouchstart="this.style.transform='scale(0.96)'" ontouchend="this.style.transform='scale(1)'">
+            <div class="glass-card" onclick="copyKey()" style="cursor: pointer; text-align: center; border: 1px solid rgba(0, 242, 255, 0.4); box-shadow: inset 0 0 25px rgba(0, 242, 255, 0.1); padding: 30px 20px; transition: transform 0.2s ease;" onmousedown="this.style.transform='scale(0.96)'" onmouseup="this.style.transform='scale(1)'" onmouseleave="this.style.transform='scale(1)'" ontouchstart="this.style.transform='scale(0.96)'" ontouchend="this.style.transform='scale(1)'">
                 <div style="font-size: 48px; margin-bottom: 15px; filter: drop-shadow(0 0 15px rgba(0, 242, 255, 0.8));">🔑</div>
-                <h2 style="color: var(--accent-cyan); font-size: 24px; font-weight: 800; letter-spacing: 0.5px; margin-bottom: 10px;">Ваш секретный ключ</h2>
-                <p style="color: var(--text-muted); font-size: 14px; margin: 0;">Нажмите на карточку, чтобы скопировать ключ в буфер обмена</p>
-
+                <h2 style="color: var(--accent-cyan); font-size: 24px; font-weight: 800; margin-bottom: 10px;">Ваш секретный ключ</h2>
+                <p style="color: var(--text-muted); font-size: 14px; margin: 0;">Нажмите на карточку, чтобы скопировать ключ</p>
                 <div id="keyLink" style="display: none;">Загрузка...</div>
             </div>
 
@@ -216,7 +328,8 @@
     <div id="tab-store" class="tab-content">
         <div class="glass-card">
             <h1>Арсенал</h1>
-            <p>Для поддержки защищенного туннеля требуются серверные мощности. Приобретайте протоколы доступа: они гарантируют бесперебойную связь и заряжают ваши батареи для новых взломов!</p>
+            <p>Приобретайте протоколы доступа: они гарантируют связь и заряжают ваши батареи для новых взломов!</p>
+
             <button class="btn btn-store" onclick="buyTariff('Протокол Стандарт', 249)">
                 <div style="display:flex; flex-direction:column; text-align:left;">
                     <span>⭐ Протокол "Стандарт" (30 дн.)</span>
@@ -238,42 +351,51 @@
                 </div>
                 <span class="price" style="color: var(--accent-cyan)">1100 ₽</span>
             </button>
+
+            <h2 style="margin-top: 24px; margin-bottom: 12px; color: var(--accent-purple); font-size: 18px;">⚡ Энергоблоки</h2>
+            <button class="btn btn-store" style="border-color: rgba(189, 147, 249, 0.4);" onclick="buyTariff('Энергоблок: Малый (+100⚡)', 50)">
+                <div style="display:flex; flex-direction:column; text-align:left;">
+                    <span style="color: var(--accent-purple);">🔋 Малый заряд</span>
+                    <span style="font-size:12px; color:var(--text-muted); margin-top:4px;">+ 100 ⚡ Энергии</span>
+                </div>
+                <span class="price" style="color: var(--accent-purple);">50 ₽</span>
+            </button>
+            <button class="btn btn-store" style="border-color: rgba(189, 147, 249, 0.7);" onclick="buyTariff('Энергоблок: Средний (+300⚡)', 130)">
+                <div style="display:flex; flex-direction:column; text-align:left;">
+                    <span style="color: var(--accent-purple);">⚡ Средний заряд</span>
+                    <span style="font-size:12px; color:var(--text-muted); margin-top:4px;">+ 300 ⚡ Энергии</span>
+                </div>
+                <span class="price" style="color: var(--accent-purple);">130 ₽</span>
+            </button>
+            <button class="btn btn-store" style="border-color: var(--accent-cyan);" onclick="buyTariff('Энергоблок: Макс (+1000⚡)', 350)">
+                <div style="display:flex; flex-direction:column; text-align:left;">
+                    <span style="color: var(--accent-cyan);">☢ Максимальный</span>
+                    <span style="font-size:12px; color:var(--text-muted); margin-top:4px;">+ 1000 ⚡ Энергии</span>
+                </div>
+                <span class="price" style="color: var(--accent-cyan);">350 ₽</span>
+            </button>
         </div>
     </div>
 
     <div id="tab-leaderboard" class="tab-content">
-        <div class="glass-card" style="padding-bottom: 10px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
-                <h1>Рейтинг Хакеров</h1>
-                <span onclick="loadLeaderboard()" style="cursor:pointer; font-size:20px;">🔄</span>
-            </div>
-            <div id="lbContainer">
-                <div style="text-align: center; color: var(--text-muted);">Загрузка...</div>
-            </div>
+        <div class="glass-card">
+            <h1>Рейтинг Хакеров</h1>
+            <div id="lbContainer"><div style="text-align: center; color: var(--text-muted);">Загрузка...</div></div>
         </div>
     </div>
-
     <div id="tab-inbox" class="tab-content">
         <div class="glass-card" style="padding-bottom: 20px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <h1>Инбокс</h1>
-                <span onclick="loadInbox()" style="cursor:pointer; font-size:20px;">🔄</span>
-            </div>
             <div class="chat-container" id="chatContainer"></div>
             <div class="chat-input-area">
                 <input type="text" id="chatInput" class="chat-input" placeholder="Сообщение админу..." onkeypress="if(event.key === 'Enter') sendAdminMessage()">
-                <button class="btn btn-primary" style="width: 50px; margin:0; border-radius: 16px;" onclick="sendAdminMessage()">➤</button>
+                <button class="btn btn-primary" style="width: 50px; margin:0;" onclick="sendAdminMessage()">➤</button>
             </div>
         </div>
     </div>
-
     <div id="tab-guide" class="tab-content">
         <div class="glass-card">
             <h1>Инструкции</h1>
-            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">📱 Android <span>▼</span></div><div class="guide-content">1. Установите приложение.<br>2. Скопируйте ключ из профиля.<br>3. Нажмите "Добавить из буфера обмена".</div></div>
-            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">🍎 iOS <span>▼</span></div><div class="guide-content">1. Установите приложение.<br>2. Скопируйте ключ.<br>3. Нажмите "+" -> "Import from Clipboard".</div></div>
-            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">🍏 Mac <span>▼</span></div><div class="guide-content">1. Установите клиент для Mac.<br>2. Скопируйте ключ доступа.<br>3. Импортируйте и подключитесь.</div></div>
-            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">💻 Windows <span>▼</span></div><div class="guide-content">1. Скачайте клиент для Windows.<br>2. Скопируйте ключ из профиля.<br>3. Вставьте его в программу и нажмите Connect.</div></div>
+            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">📱 Android <span>▼</span></div><div class="guide-content">1. Установите V2RayNG.<br>2. Скопируйте ключ.<br>3. Импорт из буфера.</div></div>
         </div>
     </div>
 
@@ -288,25 +410,18 @@
     <div id="infoModal" class="info-modal-overlay">
         <div class="info-modal-content">
             <button class="info-modal-close" onclick="toggleInfoModal()">✖</button>
-            <h2 style="color: var(--accent-cyan); text-align: center; margin-bottom: 20px;">ИНСТРУКЦИЯ ПО ВЗЛОМУ</h2>
-
-            <p style="color: #fff; margin-bottom: 10px;">
-                Вы управляете <b>Кибер-Червем</b>. Ваша цель — обходить сетевые защиты и поддерживать работу зашифрованного туннеля!
-            </p>
+            <h2 style="color: var(--accent-cyan); text-align: center; margin-bottom: 20px;">ИНСТРУКЦИЯ</h2>
+            <p style="color: #fff; margin-bottom: 10px;">Вы управляете <b>Кибер-Червем</b>. Обходите защиты!</p>
             <ul style="color: #fff; margin-bottom: 15px; padding-left: 20px; line-height: 1.6;">
-                <li>🔷 <b>SNI-Пакет (Светящийся ромб)</b> — Собирайте их! Каждый пакет дает +10 очков и заряжает туннель.</li>
-                <li>❌ <b>DPI-Блокиратор (Красный квадрат)</b> — Избегайте! Столкновение приведет к обрыву сессии.</li>
-                <li>🧱 <b>Стены и Хвост</b> — Не врезайтесь в границы системы и в собственное тело!</li>
+                <li>🔷 <b>SNI-Пакет</b> — +10 очков.</li>
+                <li>❌ <b>DPI-Блокиратор</b> — Столкновение фатально.</li>
             </ul>
-
-            <p style="color: var(--danger); font-size: 14px; background: rgba(255,68,68,0.1); padding: 10px; border-radius: 8px; border: 1px solid var(--danger);">
-                ⚠️ <b>ВНИМАНИЕ:</b> На высоких уровнях защиты вас атакует <b>Цифровой Вирус</b>. У вас будет всего 20 секунд, чтобы поймать его! Награда: <b>7 дней элитного доступа</b> бесплатно!
-            </p>
+            <p style="color: var(--danger); font-size: 14px; background: rgba(255,68,68,0.1); padding: 10px; border-radius: 8px;">⚠️ Награда за Босса — <b>7 дней доступа</b> бесплатно!</p>
             <button class="btn btn-primary" style="margin-top: 15px;" onclick="toggleInfoModal()">Понятно</button>
         </div>
     </div>
 
-    <script src="assets/js/app.js?v=3"></script>
-    <script src="assets/js/game.js?v=3"></script>
+    <script src="assets/js/app.js?v=8"></script>
+    <script src="assets/js/game.js?v=8"></script>
 </body>
 </html>
