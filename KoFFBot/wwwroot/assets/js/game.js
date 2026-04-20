@@ -392,8 +392,7 @@ function gameLoop() {
 
     if (head.x === cdn.x && head.y === cdn.y) { showGameOver(false); return; }
 
-    // === УМНЫЙ АЛГОРИТМ БОССА: ПОБЕГ И СКОРОСТЬ ===
-    let speed = 60;
+    let speed = 120; // Базовое значение задержки
 
     if (boss.active) {
         let elapsedSeconds = (Date.now() - window.bossSpawnTime) / 1000;
@@ -408,13 +407,11 @@ function gameLoop() {
             // Босс пойман!
             showGameOver(true); return;
         } else {
-            // Логика уклонения босса:
-            // Если прошло >5 сек ИЛИ игрок читер (лимит убитых), босс двигается каждый кадр (1:1 со змеей). 
-            // В первые 5 сек дает фору — двигается раз в 2 кадра.
+            // Логика уклонения босса (оставлена без изменений)
             let bossEvadeSpeed = (window.monthlyBossKills >= 2 || elapsedSeconds > 5) ? 1 : 2;
             if (window.gameTicks % bossEvadeSpeed === 0) moveBoss();
 
-            // Логика скорости змейки:
+            // Логика скорости змейки во время босса (оставлена без изменений)
             if (elapsedSeconds <= 5) {
                 speed = 90; // Первые 5 сек: комфортная скорость
             } else {
@@ -424,9 +421,9 @@ function gameLoop() {
             }
         }
     } else {
-        // Обычная игра
-        let baseSpeed = Math.max(60, 150 - ((window.bossKills || 0) * 15));
-        speed = Math.max(60, baseSpeed - (score * 0.2));
+        // Обычная игра: СКОРОСТЬ ЗАМЕДЛЕНА В 2 РАЗА (задержка увеличена с 60-150 до 120-300)
+        let baseSpeed = Math.max(120, 300 - ((window.bossKills || 0) * 30));
+        speed = Math.max(120, baseSpeed - (score * 0.4));
     }
 
     drawGame();
@@ -436,13 +433,32 @@ function gameLoop() {
 function drawGame() {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // SNI (Синяя Еда)
-    ctx.fillStyle = '#00f2ff'; ctx.shadowBlur = 10; ctx.shadowColor = '#00f2ff';
-    ctx.fillRect(food.x * gridSize + 2, food.y * gridSize + 2, gridSize - 4, gridSize - 4);
+    // SNI (Ранее Синяя Еда) - Отрисовка в виде светящегося ромба
+    ctx.fillStyle = '#00f2ff';
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = '#00f2ff';
+    ctx.beginPath();
+    let fx = food.x * gridSize + gridSize / 2;
+    let fy = food.y * gridSize + gridSize / 2;
+    ctx.moveTo(fx, fy - gridSize / 2 + 2); // Верх
+    ctx.lineTo(fx + gridSize / 2 - 2, fy); // Право
+    ctx.lineTo(fx, fy + gridSize / 2 - 2); // Низ
+    ctx.lineTo(fx - gridSize / 2 + 2, fy); // Лево
+    ctx.fill();
 
-    // CDN (Красная угроза)
-    ctx.fillStyle = '#ff4444'; ctx.shadowColor = '#ff4444';
-    ctx.fillRect(cdn.x * gridSize + 2, cdn.y * gridSize + 2, gridSize - 4, gridSize - 4);
+    // DPI-Система (Ранее CDN/Красная угроза) - Отрисовка в виде шипованного блока
+    ctx.fillStyle = '#ff4444';
+    ctx.shadowColor = '#ff4444';
+    ctx.shadowBlur = 15;
+    let cx = cdn.x * gridSize + 2;
+    let cy = cdn.y * gridSize + 2;
+    let cs = gridSize - 4;
+    ctx.fillRect(cx, cy, cs, cs);
+    // Внутренний крест для DPI
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowBlur = 0;
+    ctx.fillRect(cx + cs / 2 - 1, cy + 2, 2, cs - 4);
+    ctx.fillRect(cx + 2, cy + cs / 2 - 1, cs - 4, 2);
 
     // === БОСС (Анимированный Вирус) ===
     if (boss.active) {
@@ -478,10 +494,48 @@ function drawGame() {
         ctx.fill();
     }
 
-    // Змейка
+    // === КИБЕР-ЧЕРВЬ (Змейка) ===
     ctx.shadowBlur = 0;
     for (let i = 0; i < snake.length; i++) {
-        ctx.fillStyle = i === 0 ? '#ffffff' : 'var(--accent-purple)';
-        ctx.fillRect(snake[i].x * gridSize + 1, snake[i].y * gridSize + 1, gridSize - 2, gridSize - 2);
+        let px = snake[i].x * gridSize;
+        let py = snake[i].y * gridSize;
+
+        if (i === 0) {
+            // ГОЛОВА
+            ctx.fillStyle = '#00f2ff'; // Неоново-синий
+            ctx.fillRect(px + 1, py + 1, gridSize - 2, gridSize - 2);
+
+            // Глазки в зависимости от направления (dx, dy)
+            ctx.fillStyle = '#ffffff';
+            let eyeSize = 3;
+            if (dx === 1) { // Вправо
+                ctx.fillRect(px + gridSize - 5, py + 3, eyeSize, eyeSize);
+                ctx.fillRect(px + gridSize - 5, py + gridSize - 6, eyeSize, eyeSize);
+            } else if (dx === -1) { // Влево
+                ctx.fillRect(px + 2, py + 3, eyeSize, eyeSize);
+                ctx.fillRect(px + 2, py + gridSize - 6, eyeSize, eyeSize);
+            } else if (dy === 1) { // Вниз
+                ctx.fillRect(px + 3, py + gridSize - 5, eyeSize, eyeSize);
+                ctx.fillRect(px + gridSize - 6, py + gridSize - 5, eyeSize, eyeSize);
+            } else { // Вверх (по умолчанию и dy === -1)
+                ctx.fillRect(px + 3, py + 2, eyeSize, eyeSize);
+                ctx.fillRect(px + gridSize - 6, py + 2, eyeSize, eyeSize);
+            }
+        } else if (i === snake.length - 1) {
+            // ХВОСТ (Уменьшенный блок)
+            ctx.fillStyle = 'rgba(189, 147, 249, 0.6)';
+            ctx.fillRect(px + 4, py + 4, gridSize - 8, gridSize - 8);
+        } else {
+            // ТЕЛО (Объемное с градиентом и бликом)
+            let gradient = ctx.createLinearGradient(px, py, px + gridSize, py + gridSize);
+            gradient.addColorStop(0, '#bd93f9'); // Основной фиолетовый
+            gradient.addColorStop(1, '#8be9fd'); // Синий отлив
+            ctx.fillStyle = gradient;
+            ctx.fillRect(px + 1, py + 1, gridSize - 2, gridSize - 2);
+
+            // Внутренний блик
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(px + 4, py + 4, gridSize - 8, gridSize - 8);
+        }
     }
 }
