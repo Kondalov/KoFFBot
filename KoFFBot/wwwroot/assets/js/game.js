@@ -299,6 +299,19 @@ function moveBoss() {
 
         let scoreForMove = Math.abs(nx - head.x) + Math.abs(ny - head.y);
 
+        // === ИСПРАВЛЕНИЕ: Гравитация к центру ===
+        let distToCenter = Math.abs(nx - tileCount / 2) + Math.abs(ny - tileCount / 2);
+        scoreForMove -= distToCenter * 0.1;
+
+        // === ИСПРАВЛЕНИЕ: Паника в углах ===
+        let isCorner = (nx === 0 && ny === 0) || (nx === 0 && ny === tileCount - 1) ||
+            (nx === tileCount - 1 && ny === 0) || (nx === tileCount - 1 && ny === tileCount - 1);
+        if (isCorner) scoreForMove -= 20;
+
+        // === ИСПРАВЛЕНИЕ: Уклонение от вектора ===
+        if (dx !== 0 && m.dy !== 0) scoreForMove += 0.5;
+        if (dy !== 0 && m.dx !== 0) scoreForMove += 0.5;
+
         if (isGodMode) {
             // Бог: предсказывает следующий шаг змеи и боится углов как огня!
             let nextHeadX = head.x + dx;

@@ -244,3 +244,27 @@ window.handleCheatTap = function () {
             }).catch(() => { window.tg.showAlert("Ошибка связи с сервером."); });
     }
 };
+
+// === СБРОС БОССА ДЛЯ АДМИНА ===
+let resetBossTaps = 0;
+let resetBossTimer = null;
+window.handleResetBossTap = function () {
+    if (!window.isAdmin) return;
+    resetBossTaps++;
+    if (resetBossTimer) clearTimeout(resetBossTimer);
+    resetBossTimer = setTimeout(() => { resetBossTaps = 0; }, 2000);
+
+    if (resetBossTaps >= 5) {
+        resetBossTaps = 0;
+        fetch('/api/game/reset_boss', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ TelegramId: window.userId, Signature: "" })
+        })
+            .then(r => r.json())
+            .then(res => {
+                window.showToast("👾 DEV MODE: " + (res.Message || "Статистика босса сброшена!"));
+                setTimeout(() => window.loadProfile(true), 500);
+            }).catch(() => { window.tg.showAlert("Ошибка связи с сервером."); });
+    }
+};

@@ -128,6 +128,16 @@ public class GameService
         return (true, "Режим бога активирован.", profile.CurrentEnergy);
     }
 
+    public async Task<(bool Success, string Message)> ResetBossStatsAsync(long telegramId, CancellationToken ct)
+    {
+        var profile = await GetOrCreateProfileAsync(telegramId, ct);
+        profile.BossKills = 0;
+        profile.MonthlyBossKills = 0;
+        profile.LastBossKillDate = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await _dbContext.SaveChangesAsync(ct);
+        return (true, "Счетчик боссов сброшен на 0!");
+    }
+
     public async Task<object> GetLeaderboardAsync(CancellationToken ct)
     {
         var topRecords = await _dbContext.LeaderboardRecords
