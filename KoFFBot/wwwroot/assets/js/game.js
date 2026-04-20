@@ -232,21 +232,25 @@ function spawnFood() {
 
             const counter = document.getElementById('countdownOverlay');
             counter.style.display = 'flex';
+            counter.style.flexDirection = 'column';
+            counter.style.textAlign = 'center'; // Выравнивание текста по центру
             counter.style.color = 'var(--danger)';
-            counter.style.fontSize = 'clamp(20px, 8vw, 40px)';
+            counter.style.fontSize = 'clamp(18px, 5vw, 35px)'; // Адаптивный шрифт под длинный текст
 
             let count = 5;
-            counter.innerHTML = `ИНВЕРСИЯ<br>${count}`;
+            counter.innerHTML = `ВНИМАНИЕ!<br>УПРАВЛЕНИЕ ИЗМЕНЕНО!<br><span style="font-size: 2em; margin-top: 10px;">${count}</span>`;
 
             glitchTimer = setInterval(() => {
                 try {
                     count--;
                     if (count > 0) {
-                        counter.innerHTML = `ИНВЕРСИЯ<br>${count}`;
+                        counter.innerHTML = `ВНИМАНИЕ!<br>УПРАВЛЕНИЕ ИЗМЕНЕНО!<br><span style="font-size: 2em; margin-top: 10px;">${count}</span>`;
                     } else {
                         clearInterval(glitchTimer);
                         counter.style.display = 'none';
                         counter.style.fontSize = '';
+                        counter.style.textAlign = ''; // Сбрасываем стили
+                        counter.style.flexDirection = '';
 
                         controlsInverted = true;
                         canvas.classList.add('glitch-active');

@@ -115,27 +115,85 @@
                     </div>
                 </div>
 
+                <style>
+                    .info-modal-overlay {
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        background: rgba(0,0,0,0.85);
+                        display: none;
+                        justify-content: center;
+                        align-items: center;
+                        z-index: 3000;
+                        padding: 20px;
+                        backdrop-filter: blur(10px);
+                    }
+
+                    .info-modal-content {
+                        background: var(--bg-color);
+                        border: 1px solid var(--accent-cyan);
+                        border-radius: 20px;
+                        padding: 24px;
+                        width: 90%; /* Адаптивная ширина */
+                        max-width: 400px;
+                        max-height: 85vh; /* Ограничение высоты экрана */
+                        overflow-y: auto; /* Включаем внутренний скролл */
+                        box-shadow: 0 0 20px rgba(0, 242, 255, 0.2);
+                        position: relative;
+                    }
+
+                    .info-modal-close {
+                        position: absolute;
+                        top: 15px;
+                        right: 15px;
+                        background: transparent;
+                        border: none;
+                        color: var(--text-muted);
+                        font-size: 24px;
+                        cursor: pointer;
+                        z-index: 10;
+                    }
+
+                        .info-modal-close:active {
+                            color: var(--danger);
+                        }
+                </style>
                 <div class="stat-grid" style="grid-template-columns: 1fr 1fr;">
-                    <div class="stat-box" style="justify-content: space-between;">
-                        <div>
-                            <div class="stat-label">Сеть</div>
-                            <div class="stat-value" style="font-size:18px;" id="refCount">0 друзей</div>
+                    <div class="stat-box" style="padding: 18px; display: flex; flex-direction: column; justify-content: space-between; border-radius: 24px; overflow: hidden; position: relative;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                            <div class="stat-label" style="margin: 0; font-size: 11px;">Сеть</div>
+                            <div class="stat-label" style="color: #fff; margin: 0; font-size: 13px; text-transform: none;" id="refCount">0 друзей</div>
                         </div>
-                        <button class="btn btn-outline" style="margin: 10px 0 0 0; padding: 10px; font-size: 12px;" onclick="showRefLink()">ПОЗВАТЬ</button>
+
+                        <div style="flex-grow: 1; display: flex; justify-content: center; align-items: center; padding: 10px 0; min-height: 70px;">
+                            <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" style="width: 48px; height: 48px; color: var(--accent-cyan); filter: drop-shadow(0px 4px 10px rgba(0, 242, 255, 0.3)); animation: breathe 4s ease-in-out infinite;">
+                                <path d="M16 11C17.66 11 18.99 9.66 18.99 8C18.99 6.34 17.66 5 16 5C14.34 5 13 6.34 13 8C13 9.66 14.34 11 16 11ZM8 11C9.66 11 10.99 9.66 10.99 8C10.99 6.34 9.66 5 8 5C6.34 5 5 6.34 5 8C5 9.66 6.34 11 8 11ZM8 13C5.67 13 1 14.17 1 16.5V19H15V16.5C15 14.17 10.33 13 8 13ZM16 13C15.71 13 15.38 13.02 15.03 13.05C16.19 13.89 17 15.02 17 16.5V19H23V16.5C23 14.17 18.33 13 16 13Z" />
+                            </svg>
+                        </div>
+
+                        <button class="btn" style="background: rgba(0, 242, 255, 0.1); color: var(--accent-cyan); border: 1px solid rgba(0, 242, 255, 0.2); padding: 12px; font-size: 12px; font-weight: 800; border-radius: 16px; margin-top: auto; text-transform: uppercase; width: 100%; transition: transform 0.2s ease;" onclick="showRefLink()" onmousedown="this.style.transform='scale(0.97)'" onmouseup="this.style.transform='scale(1)'" onmouseleave="this.style.transform='scale(1)'" ontouchstart="this.style.transform='scale(0.97)'" ontouchend="this.style.transform='scale(1)'">Позвать</button>
                     </div>
 
-                    <div class="stat-box" style="border-color: rgba(189, 147, 249, 0.5); box-shadow: inset 0 0 20px rgba(189, 147, 249, 0.15); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; padding: 25px 15px;">
-                        <div style="position: absolute; top: 12px; right: 12px; background: rgba(189, 147, 249, 0.2); color: var(--accent-purple); border-radius: 50%; width: 24px; height: 24px; display: flex; justify-content: center; align-items: center; font-size: 14px; font-weight: bold; cursor: pointer;" onclick="toggleInfoModal()">?</div>
+                    <div class="stat-box" style="padding: 18px; display: flex; flex-direction: column; justify-content: space-between; border-radius: 24px; background: linear-gradient(145deg, rgba(0,0,0,0.4), rgba(189, 147, 249, 0.15)); border-color: rgba(189, 147, 249, 0.3); overflow: hidden; position: relative;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; position: relative;">
+                            <div class="stat-label" style="color: var(--accent-purple); cursor: pointer; margin: 0; font-size: 11px; z-index: 2;" onclick="window.handleCheatTap()">Токены взлома</div>
 
-                        <div class="stat-label" style="color: var(--accent-purple); cursor: pointer; margin-bottom: 10px; font-size: 13px;" onclick="window.handleCheatTap()">Токены взлома</div>
+                            <div style="position: absolute; top: -5px; right: -5px; background: rgba(189, 147, 249, 0.2); color: var(--accent-purple); border-radius: 50%; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; font-size: 11px; font-weight: bold; cursor: pointer; z-index: 5;" onclick="toggleInfoModal()">?</div>
 
-                        <div class="stat-value" style="color: var(--accent-purple); font-size: clamp(34px, 8vw, 44px); text-shadow: 0 0 20px rgba(189, 147, 249, 0.6); margin-bottom: 20px;">
-                            <span id="energyValue">0</span><span class="stat-unit" style="font-size: 0.6em; margin-left: 5px;">⚡</span>
+                            <div style="font-size: 14px; font-weight: 800; color: #e9bfff; background: rgba(189, 147, 249, 0.2); padding: 4px 10px; border-radius: 12px; box-shadow: 0 0 10px rgba(189, 147, 249, 0.1); display: flex; align-items: baseline; gap: 3px; margin-right: 18px; z-index: 2;">
+                                <span id="energyValue">0</span><span style="font-size: 10px;">⚡</span>
+                            </div>
                         </div>
 
-                        <button class="btn btn-game" style="width: 100%; padding: 16px; font-size: 16px; border-radius: 14px; background: rgba(189, 147, 249, 0.15); border: 1px solid var(--accent-purple); color: var(--accent-purple); font-weight: 800; box-shadow: 0 0 15px rgba(189, 147, 249, 0.2); transition: transform 0.2s;" onclick="startGameUi()">
-                            <span style="font-size: 22px;">🎮</span> ВЗЛОМ (1⚡)
-                        </button>
+                        <div style="flex-grow: 1; display: flex; justify-content: center; align-items: center; padding: 10px 0; min-height: 70px;">
+                            <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" style="width: 54px; height: 54px; color: var(--accent-purple); filter: drop-shadow(0px 4px 12px rgba(189, 147, 249, 0.4)); animation: float 3s ease-in-out infinite;">
+                                <path d="M21.58 7.19C21.18 5.76 19.96 4.72 18.5 4.5L12 3.48L5.5 4.5C4.04 4.72 2.82 5.76 2.42 7.19L1.13 11.83C0.76 13.16 1.05 14.6 2.02 15.63L3.5 17.2C4.19 17.93 5.35 17.97 6.08 17.29L8 15.5H16L17.92 17.29C18.65 17.97 19.81 17.93 20.5 17.2L21.98 15.63C22.95 14.6 23.24 13.16 22.87 11.83L21.58 7.19ZM8.5 10.5H7V12C7 12.55 6.55 13 6 13C5.45 13 5 12.55 5 12V10.5H3.5C2.95 10.5 2.5 10.05 2.5 9.5C2.5 8.95 2.95 8.5 3.5 8.5H5V7C5 6.45 5.45 6 6 6C6.55 6 7 6.45 7 7V8.5H8.5C9.05 8.5 9.5 8.95 9.5 9.5C9.5 10.05 9.05 10.5 8.5 10.5ZM16.5 11.5C15.67 11.5 15 10.83 15 10C15 9.17 15.67 8.5 16.5 8.5C17.33 8.5 18 9.17 18 10C18 10.83 17.33 11.5 16.5 11.5ZM19 8.5C18.17 8.5 17.5 7.83 17.5 7C17.5 6.17 18.17 5.5 19 5.5C19.83 5.5 20.5 6.17 20.5 7C20.5 7.83 19.83 8.5 19 8.5Z" />
+                            </svg>
+                        </div>
+
+                        <button class="btn btn-game" style="background: var(--accent-purple); color: #fff; box-shadow: 0 4px 15px rgba(189, 147, 249, 0.3); padding: 12px; font-size: 12px; font-weight: 800; border-radius: 16px; border: none; margin-top: auto; text-transform: uppercase; width: 100%; transition: transform 0.2s ease;" onclick="startGameUi()" onmousedown="this.style.transform='scale(0.97)'" onmouseup="this.style.transform='scale(1)'" onmouseleave="this.style.transform='scale(1)'" ontouchstart="this.style.transform='scale(0.97)'" ontouchend="this.style.transform='scale(1)'">Взлом (1 ⚡)</button>
                     </div>
                 </div>
             </div>
