@@ -141,6 +141,7 @@ function loadProfile(isSilent = false) {
         if (!gData.isBanned) {
             document.getElementById('energyValue').innerText = gData.energy || 0;
             window.bossKills = gData.bossKills || 0;
+            window.monthlyBossKills = gData.monthlyBossKills || 0; // Сохраняем лимиты месяца!
         }
     }).catch(() => { });
 
@@ -217,3 +218,29 @@ function toggleInfoModal() {
     }
 }
 window.toggleInfoModal = toggleInfoModal;
+
+// === ВОССТАНОВЛЕННЫЙ РЕЖИМ БОГА ДЛЯ ЭНЕРГИИ ===
+let energyCheatTaps = 0;
+let energyCheatTimer = null;
+window.handleCheatTap = function () {
+    if (!window.isAdmin) return;
+    energyCheatTaps++;
+    if (energyCheatTimer) clearTimeout(energyCheatTimer);
+    energyCheatTimer = setTimeout(() => { energyCheatTaps = 0; }, 2000);
+
+    if (energyCheatTaps >= 5) {
+        energyCheatTaps = 0;
+        fetch('/api/game/cheat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ TelegramId: window.userId, Signature: "" })
+        })
+            .then(r => r.json())
+            .then(res => {
+                if (res.newEnergy) {
+                    document.getElementById('energyValue').innerText = res.newEnergy;
+                    window.showToast("👾 DEV MODE: +50 Энергии выдано!");
+                }
+            }).catch(() => { window.tg.showAlert("Ошибка связи с сервером."); });
+    }
+};

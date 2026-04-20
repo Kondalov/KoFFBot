@@ -84,6 +84,8 @@ public static class Program
 
             // === ИСПРАВЛЕНИЕ: Безопасное добавление колонки BossKills ===
             try { db.Database.ExecuteSqlRaw("ALTER TABLE \"GameProfiles\" ADD COLUMN \"BossKills\" INTEGER NOT NULL DEFAULT 0;"); } catch { }
+            try { db.Database.ExecuteSqlRaw("ALTER TABLE \"GameProfiles\" ADD COLUMN \"MonthlyBossKills\" INTEGER NOT NULL DEFAULT 0;"); } catch { }
+            try { db.Database.ExecuteSqlRaw("ALTER TABLE \"GameProfiles\" ADD COLUMN \"LastBossKillDate\" TEXT NOT NULL DEFAULT '2000-01-01 00:00:00';"); } catch { }
         }
 
         app.Use(async (context, next) =>
@@ -166,7 +168,20 @@ public static class Program
         app.MapGet("/api/game/profile", async (long tgId, GameService gameService) => {
             var profile = await gameService.GetOrCreateProfileAsync(tgId, CancellationToken.None);
             if (profile.IsBanned) return Results.BadRequest("Аккаунт заблокирован.");
-            return Results.Ok(new { Energy = profile.CurrentEnergy, IsBanned = profile.IsBanned, BossKills = profile.BossKills });
+
+            // Сброс месяца при загрузке профиля (если месяц прошел)
+            if (profile.LastBossKillDate.Month != DateTime.UtcNow.Month || profile.LastBossKillDate.Year != DateTime.UtcNow.Year)
+            {
+                profile.MonthlyBossKills = 0;
+            }
+
+            return Results.Ok(new
+            {
+                Energy = profile.CurrentEnergy,
+                IsBanned = profile.IsBanned,
+                BossKills = profile.BossKills,
+                MonthlyBossKills = profile.MonthlyBossKills // Передаем лимит на фронт
+            });
         });
         app.MapPost("/api/game/start", async (GameActionRequest req, GameService gameService) => { var result = await gameService.TryStartGameAsync(req.TelegramId, CancellationToken.None); if (!result.Success) return Results.BadRequest(result.Message); return Results.Ok(new { Message = result.Message, RemainingEnergy = result.RemainingEnergy }); });
         app.MapPost("/api/game/submit", async (GameScoreRequest req, GameService gameService) => { var result = await gameService.SubmitScoreAsync(req.TelegramId, req.Score, req.Signature, CancellationToken.None); if (!result.Success) return Results.BadRequest(result.Message); return Results.Ok(new { Message = result.Message }); });

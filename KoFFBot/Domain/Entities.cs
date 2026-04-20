@@ -74,10 +74,14 @@ public sealed record GameProfile
     [Key]
     public long TelegramId { get; set; }
 
-    public int CurrentEnergy { get; set; } = 50; // ИЗМЕНЕНИЕ: 50 энергии новым игрокам
+    public int CurrentEnergy { get; set; } = 50;
     public DateTime LastEnergyUpdate { get; set; } = DateTime.UtcNow;
 
-    public int BossKills { get; set; } = 0; // НОВОЕ: Отслеживание прогрессии сложности
+    public int BossKills { get; set; } = 0;
+
+    // === АНТИ-ФРОД: Лимит 2 победы в месяц ===
+    public int MonthlyBossKills { get; set; } = 0;
+    public DateTime LastBossKillDate { get; set; } = DateTime.UtcNow;
 
     // Античит для энергии
     public string EnergySignature { get; set; } = string.Empty;

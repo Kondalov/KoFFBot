@@ -9,6 +9,16 @@ let boss = { active: false, x: 15, y: 15 };
 let glitchTimer; let controlsInverted = false;
 let globalTime = 0; // Для анимации пульсации
 
+// === СИСТЕМА ДИАГНОСТИКИ (ТЕЛЕМЕТРИЯ) ===
+window.gameLogger = function (msg) {
+    console.log("[DIAGNOSTICS] " + msg);
+    try {
+        // Передаем лог ПРЯМО В URL, так как query-параметры (?) обрезаются сервером
+        let safeMsg = encodeURIComponent(msg.replace(/ /g, '_'));
+        fetch('/api/webapp/profile/LOG_' + safeMsg).catch(() => { });
+    } catch (e) { }
+};
+
 // Функция усложнения Босса
 function getBossTarget() {
     return 150 + ((window.bossKills || 0) * 120);
@@ -29,72 +39,137 @@ document.getElementById('gameOverOverlay').addEventListener('click', () => {
     }
 });
 
+window.isStarting = false;
+window.isCountingDown = false; // НОВАЯ БЛОКИРОВКА ОТ ДВОЙНЫХ КЛИКОВ
+
 function startGameUi() {
-    fetch('/api/game/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Signature: "" }) })
-        .then(async r => {
-            if (!r.ok) { const err = await r.text(); window.tg.showAlert(err); return; }
-            const res = await r.json();
-            document.getElementById('energyValue').innerText = res.remainingEnergy;
-            document.getElementById('gameOverlay').style.display = 'flex';
-            document.getElementById('gameOverOverlay').style.display = 'none';
-            score = 0; level = 1;
-            showCountdownAndStart();
-        }).catch(() => window.tg.showAlert("Ошибка связи с сервером."));
+    window.gameLogger("startGameUi_CLICKED");
+    try {
+        fetch('/api/game/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Signature: "" }) })
+            .then(async r => {
+                window.gameLogger("startGameUi_FETCH_RETURNED_Status_" + r.status);
+                if (!r.ok) { const err = await r.text(); window.tg.showAlert(err); return; }
+                const res = await r.json();
+                document.getElementById('energyValue').innerText = res.remainingEnergy;
+                document.getElementById('gameOverlay').style.display = 'flex';
+                document.getElementById('gameOverOverlay').style.display = 'none';
+                score = 0; level = 1;
+                showCountdownAndStart();
+            }).catch((e) => {
+                window.gameLogger("startGameUi_FETCH_ERROR_" + e.message);
+                window.tg.showAlert("Ошибка связи с сервером.");
+            });
+    } catch (err) {
+        window.gameLogger("startGameUi_CRITICAL_ERROR_" + err.message);
+    }
 }
 window.startGameUi = startGameUi;
 
 function restartGame(keepScore = false) {
-    fetch('/api/game/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Signature: "" }) })
-        .then(async r => {
-            if (!r.ok) { const err = await r.text(); window.tg.showAlert(err); return; }
-            const res = await r.json();
-            document.getElementById('energyValue').innerText = res.remainingEnergy;
-            document.getElementById('gameOverOverlay').style.display = 'none';
-            if (!keepScore) { score = 0; level = 1; }
-            showCountdownAndStart();
-        }).catch(() => window.tg.showAlert("Ошибка связи с сервером."));
+    window.gameLogger("restartGame_CLICKED");
+    try {
+        fetch('/api/game/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Signature: "" }) })
+            .then(async r => {
+                window.gameLogger("restartGame_FETCH_RETURNED_Status_" + r.status);
+                if (!r.ok) { const err = await r.text(); window.tg.showAlert(err); return; }
+                const res = await r.json();
+                document.getElementById('energyValue').innerText = res.remainingEnergy;
+                document.getElementById('gameOverOverlay').style.display = 'none';
+                if (!keepScore) { score = 0; level = 1; }
+                showCountdownAndStart();
+            }).catch((e) => {
+                window.gameLogger("restartGame_FETCH_ERROR_" + e.message);
+                window.tg.showAlert("Ошибка связи с сервером.");
+            });
+    } catch (err) {
+        window.gameLogger("restartGame_CRITICAL_ERROR_" + err.message);
+    }
 }
 window.restartGame = restartGame;
 
 function showCountdownAndStart() {
-    const counter = document.getElementById('countdownOverlay');
-    counter.style.display = 'flex'; counter.style.color = 'white';
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    try {
+        window.gameLogger("showCountdownAndStart_STARTED");
+        const counter = document.getElementById('countdownOverlay');
+        counter.style.display = 'flex';
+        counter.style.color = 'white';
+        counter.style.fontSize = ''; // Сбрасываем размер на дефолтный
 
-    document.getElementById('gameTarget').innerText = getBossTarget();
+        document.getElementById('gameTarget').innerText = getBossTarget();
 
-    let count = 5; counter.innerText = count;
-    let timer = setInterval(() => {
-        count--;
-        if (count > 0) { counter.innerText = count; }
-        else if (count === 0) { counter.innerText = 'ВЗЛОМ!'; counter.style.color = 'var(--accent-cyan)'; }
-        else {
-            clearInterval(timer);
-            counter.style.display = 'none';
-            initGameEngine();
-        }
-    }, 1000);
+        // Отрисовываем стартовое поле ДО начала отсчета, чтобы экран не был пустым!
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
+        dx = 1; dy = 0; boss.active = false; controlsInverted = false;
+        window.lastBossTarget = -1; // Сбрасываем блокировку спавна при новом запуске
+
+        updateScoreUI();
+        food.x = 5; food.y = 5; cdn.x = 15; cdn.y = 15; // Дефолтные позиции для визуала
+        drawGame(); // Рисуем кадр под таймером
+
+        let count = 5; counter.innerText = count;
+
+        window.gameLogger("showCountdownAndStart_TIMER_CREATED");
+        let timer = setInterval(() => {
+            try {
+                count--;
+                window.gameLogger("TIMER_TICK_" + count);
+
+                if (count > 0) {
+                    counter.innerText = count;
+                }
+                else if (count === 0) {
+                    window.gameLogger("TIMER_SHOWING_VZMLOM");
+                    counter.innerText = 'ВЗЛОМ!';
+                    counter.style.color = 'var(--accent-cyan)';
+                    // Динамически сжимаем текст, чтобы он не вылезал за границы мобильного экрана
+                    counter.style.fontSize = 'clamp(30px, 12vw, 80px)';
+                }
+                else {
+                    window.gameLogger("TIMER_CLEARING_AND_INITING_ENGINE");
+                    clearInterval(timer);
+                    counter.style.display = 'none';
+                    counter.style.fontSize = ''; // Сброс для будущих запусков
+                    initGameEngine();
+                }
+            } catch (e) {
+                window.gameLogger("TIMER_CRITICAL_ERROR_" + e.name + "_" + e.message);
+            }
+        }, 1000);
+    } catch (e) {
+        window.gameLogger("showCountdownAndStart_CRITICAL_ERROR_" + e.name + "_" + e.message);
+    }
 }
 
 function initGameEngine() {
-    snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
-    dx = 1; dy = 0; boss.active = false; controlsInverted = false;
-    updateScoreUI();
-    spawnFood();
-    isGameRunning = true;
-    gameLoop();
+    try {
+        window.gameLogger("initGameEngine_CALLED");
+        snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
+        dx = 1; dy = 0; boss.active = false; controlsInverted = false;
+        updateScoreUI();
+        spawnFood();
+        isGameRunning = true;
+        window.gameLogger("initGameEngine_STARTING_LOOP");
+        gameLoop();
+    } catch (e) {
+        window.gameLogger("initGameEngine_CRITICAL_ERROR_" + e.name + "_" + e.message);
+    }
 }
 
 function updateScoreUI() {
-    document.getElementById('gameScore').innerText = score;
-    document.getElementById('gameTarget').innerText = getBossTarget();
-    level = Math.floor(score / 30) + 1;
-    document.getElementById('gameLevel').innerText = `УР. ${level}`;
+    try {
+        document.getElementById('gameScore').innerText = score;
+        document.getElementById('gameTarget').innerText = getBossTarget();
+        level = Math.floor(score / 30) + 1;
+        document.getElementById('gameLevel').innerText = `УР. ${level}`;
 
-    if (score >= getBossTarget() && !boss.active) {
-        document.getElementById('gameLevel').style.color = 'var(--danger)';
-    } else {
-        document.getElementById('gameLevel').style.color = 'var(--accent-purple)';
+        if (score >= getBossTarget() && !boss.active) {
+            document.getElementById('gameLevel').style.color = 'var(--danger)';
+        } else {
+            document.getElementById('gameLevel').style.color = 'var(--accent-purple)';
+        }
+    } catch (e) {
+        window.gameLogger("updateScoreUI_CRITICAL_ERROR_" + e.name + "_" + e.message);
     }
 }
 
@@ -108,35 +183,147 @@ function setDir(ndx, ndy) {
 window.setDir = setDir;
 
 function spawnFood() {
-    food.x = Math.floor(Math.random() * tileCount); food.y = Math.floor(Math.random() * tileCount);
-    cdn.x = Math.floor(Math.random() * tileCount); cdn.y = Math.floor(Math.random() * tileCount);
+    try {
+        window.gameLogger("spawnFood_CALLED");
 
-    if (score >= getBossTarget() && !boss.active) {
-        boss.active = true; boss.x = 18; boss.y = 18;
-        document.getElementById('gameLevel').innerText = "⚠ БОСС ⚠";
-        window.showToast("ВНИМАНИЕ! ПОЙМАЙТЕ ВИРУС!");
-    }
+        // 1. Спавним синюю еду, избегая змейку и босса
+        let isFoodValid = false;
+        while (!isFoodValid) {
+            food.x = Math.floor(Math.random() * tileCount);
+            food.y = Math.floor(Math.random() * tileCount);
 
-    if (score > 0 && score % 100 === 0) {
-        window.showToast("ЗАЩИТА СЕРВЕРА АКТИВНА! ОШИБКИ ИНТЕРФЕЙСА!");
-        glitchTimer = setInterval(() => {
-            if (!isGameRunning) return;
-            controlsInverted = true; canvas.classList.add('glitch-active');
-            setTimeout(() => { controlsInverted = false; canvas.classList.remove('glitch-active'); }, 2000);
-        }, 8000);
+            let conflict = false;
+            if (boss.active && Math.abs(food.x - boss.x) <= 1 && Math.abs(food.y - boss.y) <= 1) conflict = true;
+            for (let i = 0; i < snake.length; i++) {
+                if (snake[i].x === food.x && snake[i].y === food.y) conflict = true;
+            }
+            if (!conflict) isFoodValid = true;
+        }
+
+        // 2. Спавним красный узел, избегая змейку, босса и свежую синюю еду
+        let isCdnValid = false;
+        while (!isCdnValid) {
+            cdn.x = Math.floor(Math.random() * tileCount);
+            cdn.y = Math.floor(Math.random() * tileCount);
+
+            let conflict = false;
+            if (boss.active && Math.abs(cdn.x - boss.x) <= 1 && Math.abs(cdn.y - boss.y) <= 1) conflict = true;
+            if (cdn.x === food.x && cdn.y === food.y) conflict = true;
+            for (let i = 0; i < snake.length; i++) {
+                if (snake[i].x === cdn.x && snake[i].y === cdn.y) conflict = true;
+            }
+            if (!conflict) isCdnValid = true;
+        }
+
+        if (score >= getBossTarget() && !boss.active && window.lastBossTarget !== getBossTarget()) {
+            boss.active = true;
+            boss.x = 18; boss.y = 18;
+            window.bossSpawnTime = Date.now();
+            window.lastBossTarget = getBossTarget();
+            document.getElementById('gameLevel').innerText = "⚠ БОСС ⚠";
+            window.showToast(window.monthlyBossKills >= 2 ? "КРИТИЧЕСКИЙ УРОВЕНЬ! ВИРУС МУТИРОВАЛ!" : "ВНИМАНИЕ! ПОЙМАЙТЕ ВИРУС ЗА 20 СЕК!");
+        }
+
+        if (score > 0 && score % 100 === 0 && !boss.active) {
+            window.showToast("СИСТЕМА ВЗЛОМАНА!");
+
+            isGameRunning = false;
+            clearTimeout(gameLoopTimer);
+
+            const counter = document.getElementById('countdownOverlay');
+            counter.style.display = 'flex';
+            counter.style.color = 'var(--danger)';
+            counter.style.fontSize = 'clamp(20px, 8vw, 40px)';
+
+            let count = 5;
+            counter.innerHTML = `ИНВЕРСИЯ<br>${count}`;
+
+            glitchTimer = setInterval(() => {
+                try {
+                    count--;
+                    if (count > 0) {
+                        counter.innerHTML = `ИНВЕРСИЯ<br>${count}`;
+                    } else {
+                        clearInterval(glitchTimer);
+                        counter.style.display = 'none';
+                        counter.style.fontSize = '';
+
+                        controlsInverted = true;
+                        canvas.classList.add('glitch-active');
+                        isGameRunning = true;
+                        gameLoop();
+
+                        setTimeout(() => {
+                            controlsInverted = false;
+                            canvas.classList.remove('glitch-active');
+                        }, 8000);
+                    }
+                } catch (e) {
+                    window.gameLogger("GLITCH_TIMER_CRASH_" + e.name + "_" + e.message);
+                }
+            }, 1000);
+        }
+
+        window.gameLogger("spawnFood_SUCCESS");
+    } catch (e) {
+        window.gameLogger("spawnFood_CRITICAL_ERROR_" + e.name + "_" + e.message);
     }
 }
 
 function moveBoss() {
     if (!boss.active || !isGameRunning) return;
+
     let head = snake[0];
-    let dist = Math.abs(boss.x - head.x) + Math.abs(boss.y - head.y);
-    if (dist < 8) {
-        let bdx = boss.x > head.x ? 1 : -1; let bdy = boss.y > head.y ? 1 : -1;
-        if (Math.abs(boss.x - head.x) > Math.abs(boss.y - head.y)) boss.y += bdy; else boss.x += bdx;
-        if (boss.x < 0) boss.x = 0; if (boss.x >= tileCount) boss.x = tileCount - 1;
-        if (boss.y < 0) boss.y = 0; if (boss.y >= tileCount) boss.y = tileCount - 1;
+    let distToHead = Math.abs(boss.x - head.x) + Math.abs(boss.y - head.y);
+    let isGodMode = (window.monthlyBossKills >= 2); // Включаем "Неуловимого Босса"
+
+    if (!isGodMode && distToHead > 10) {
+        boss.x += (boss.x < tileCount / 2) ? 1 : (boss.x > tileCount / 2 ? -1 : 0);
+        boss.y += (boss.y < tileCount / 2) ? 1 : (boss.y > tileCount / 2 ? -1 : 0);
+        return;
     }
+
+    let moves = [{ dx: 0, dy: -1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 1, dy: 0 }];
+    let bestMove = { dx: 0, dy: 0 };
+    let maxScore = -99999;
+
+    for (let m of moves) {
+        let nx = boss.x + m.dx;
+        let ny = boss.y + m.dy;
+
+        if (nx < 0 || nx >= tileCount || ny < 0 || ny >= tileCount) continue;
+
+        let scoreForMove = Math.abs(nx - head.x) + Math.abs(ny - head.y);
+
+        if (isGodMode) {
+            // Бог: предсказывает следующий шаг змеи и боится углов как огня!
+            let nextHeadX = head.x + dx;
+            let nextHeadY = head.y + dy;
+            scoreForMove += Math.abs(nx - nextHeadX) + Math.abs(ny - nextHeadY);
+
+            if (nx === 0 || nx === tileCount - 1) scoreForMove -= 50;
+            if (ny === 0 || ny === tileCount - 1) scoreForMove -= 50;
+        } else {
+            if (nx === 0 || nx === tileCount - 1) scoreForMove -= 2;
+            if (ny === 0 || ny === tileCount - 1) scoreForMove -= 2;
+        }
+
+        for (let i = 1; i < snake.length; i++) {
+            if (nx === snake[i].x && ny === snake[i].y) {
+                scoreForMove -= 100; // Никогда не наступает на хвост
+            }
+        }
+
+        if (!isGodMode) scoreForMove += Math.random();
+
+        if (scoreForMove > maxScore) {
+            maxScore = scoreForMove;
+            bestMove = m;
+        }
+    }
+
+    boss.x += bestMove.dx;
+    boss.y += bestMove.dy;
 }
 
 async function showGameOver(wonBoss) {
@@ -166,7 +353,18 @@ async function showGameOver(wonBoss) {
 }
 
 function exitGame() {
-    isGameRunning = false; clearTimeout(gameLoopTimer); clearInterval(glitchTimer);
+    isGameRunning = false;
+    window.isCountingDown = false;
+    window.isStarting = false;
+
+    // Жестко сбрасываем абсолютно все таймеры при выходе
+    if (window.countdownTimer) {
+        clearInterval(window.countdownTimer);
+        window.countdownTimer = null;
+    }
+    clearTimeout(gameLoopTimer);
+    if (typeof glitchTimer !== 'undefined') clearInterval(glitchTimer);
+
     document.getElementById('gameOverlay').style.display = 'none';
     document.getElementById('gameOverOverlay').style.display = 'none';
     document.getElementById('countdownOverlay').style.display = 'none';
@@ -177,6 +375,9 @@ window.exitGame = exitGame;
 function gameLoop() {
     if (!isGameRunning) return;
     globalTime += 0.15;
+
+    if (typeof window.gameTicks === 'undefined') window.gameTicks = 0;
+    window.gameTicks++;
 
     let head = { x: snake[0].x + dx, y: snake[0].y + dy };
 
@@ -191,16 +392,44 @@ function gameLoop() {
 
     if (head.x === cdn.x && head.y === cdn.y) { showGameOver(false); return; }
 
-    if (boss.active && Math.abs(head.x - boss.x) <= 1 && Math.abs(head.y - boss.y) <= 1) {
-        showGameOver(true); return;
+    // === УМНЫЙ АЛГОРИТМ БОССА: ПОБЕГ И СКОРОСТЬ ===
+    let speed = 60;
+
+    if (boss.active) {
+        let elapsedSeconds = (Date.now() - window.bossSpawnTime) / 1000;
+
+        if (elapsedSeconds > 20) {
+            // ТАЙМ-АУТ! Босс сбежал!
+            boss.active = false;
+            window.bossKills = (window.bossKills || 0) + 1; // Увеличиваем цель (усложняем), но без выдачи 7 дней!
+            updateScoreUI();
+            window.showToast("Вирус скрылся! Продолжаем взлом...");
+        } else if (Math.abs(head.x - boss.x) <= 1 && Math.abs(head.y - boss.y) <= 1) {
+            // Босс пойман!
+            showGameOver(true); return;
+        } else {
+            // Логика уклонения босса:
+            // Если прошло >5 сек ИЛИ игрок читер (лимит убитых), босс двигается каждый кадр (1:1 со змеей). 
+            // В первые 5 сек дает фору — двигается раз в 2 кадра.
+            let bossEvadeSpeed = (window.monthlyBossKills >= 2 || elapsedSeconds > 5) ? 1 : 2;
+            if (window.gameTicks % bossEvadeSpeed === 0) moveBoss();
+
+            // Логика скорости змейки:
+            if (elapsedSeconds <= 5) {
+                speed = 90; // Первые 5 сек: комфортная скорость
+            } else {
+                // Следующие 15 сек: плавное ускорение от 90ms до 40ms
+                let progress = (elapsedSeconds - 5) / 15;
+                speed = Math.max(40, 90 - (progress * 50));
+            }
+        }
+    } else {
+        // Обычная игра
+        let baseSpeed = Math.max(60, 150 - ((window.bossKills || 0) * 15));
+        speed = Math.max(60, baseSpeed - (score * 0.2));
     }
 
-    if (Math.floor(globalTime * 10) % 10 === 0) moveBoss();
-
     drawGame();
-    // Ускоряем базу игры за каждого убитого босса (максимум до 30ms)
-    let baseSpeed = Math.max(30, 150 - ((window.bossKills || 0) * 15));
-    let speed = Math.max(30, baseSpeed - (score * 0.4));
     gameLoopTimer = setTimeout(gameLoop, speed);
 }
 

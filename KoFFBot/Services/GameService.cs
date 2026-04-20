@@ -88,8 +88,22 @@ public class GameService
         if (profile.IsBanned) return (false, "Аккаунт заблокирован.");
         if (!AntiCheatSigner.VerifySignature(telegramId, 1000, clientSignature)) return (false, "Неверный код победы.");
 
+        // Проверка сброса месяца
+        if (profile.LastBossKillDate.Month != DateTime.UtcNow.Month || profile.LastBossKillDate.Year != DateTime.UtcNow.Year)
+        {
+            profile.MonthlyBossKills = 0;
+        }
+
+        // === ЖЕСТКИЙ АНТИ-ФРОД: Не больше 2 побед в месяц ===
+        if (profile.MonthlyBossKills >= 2)
+        {
+            return (false, "Лимит побед исчерпан! В этом месяце вирус мутировал, доступ не выдан.");
+        }
+
         // Увеличиваем сложность для следующего раза
         profile.BossKills += 1;
+        profile.MonthlyBossKills += 1;
+        profile.LastBossKillDate = DateTime.UtcNow;
 
         var sub = await _dbContext.VpnSubscriptions.FirstOrDefaultAsync(s => s.TelegramId == telegramId && s.IsActive, ct);
         if (sub != null)
