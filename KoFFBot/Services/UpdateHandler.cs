@@ -85,7 +85,7 @@ public class UpdateHandler : IUpdateHandler
 
         if (message.Text.StartsWith("/start"))
         {
-            var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://7c7c33e7514b51.lhr.life" }) } }; // ВСТАВЬ СВОЮ ССЫЛКУ
+            var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://7cca62068350e7.lhr.life" }) } }; // ВСТАВЬ СВОЮ ССЫЛКУ
             await botClient.SendMessage(chatId: message.Chat.Id, text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение.", replyMarkup: new InlineKeyboardMarkup(buttons), cancellationToken: cancellationToken);
         }
     }
@@ -96,7 +96,16 @@ public class UpdateHandler : IUpdateHandler
         var chatId = callbackQuery.Message!.Chat.Id;
         string data = callbackQuery.Data ?? "";
 
-        BotLogger.Log("DEEP-TRACE", $"[КНОПКА] Админ {user.Id} нажал кнопку: '{data}'");
+        BotLogger.Log("DEEP-TRACE", $"[КНОПКА] Пользователь {user.Id} нажал кнопку: '{data}'");
+
+        // === ZERO TRUST: ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА ===
+        string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
+        if (!string.IsNullOrEmpty(adminIdStr) && user.Id.ToString() != adminIdStr)
+        {
+            BotLogger.Log("SECURITY", $"[ALARM] Попытка несанкционированного доступа к админ-панели от {user.Id}");
+            await botClient.AnswerCallbackQuery(callbackQuery.Id, "⛔ Отказано в доступе! Действие заблокировано.", showAlert: true, cancellationToken: cancellationToken);
+            return;
+        }
 
         try
         {
@@ -138,7 +147,6 @@ public class UpdateHandler : IUpdateHandler
                 string targetId = data.Replace("renew_", "");
                 BotLogger.Log("ACTION", $"Смена клавиатуры на тарифы для ID: {targetId}");
 
-                // === ИСПРАВЛЕНИЕ: Добавлены кнопки энергоблоков ===
                 var kb = new InlineKeyboardMarkup(new[] {
                     new[] { InlineKeyboardButton.WithCallbackData("1 Мес (+100⚡)", $"t1_{targetId}"), InlineKeyboardButton.WithCallbackData("3 Мес (+350⚡)", $"t3_{targetId}") },
                     new[] { InlineKeyboardButton.WithCallbackData("6 Мес (+1000⚡)", $"t6_{targetId}") },
@@ -193,7 +201,6 @@ public class UpdateHandler : IUpdateHandler
                 }
                 return;
             }
-            // === ИСПРАВЛЕНИЕ: Логика выдачи ТОЛЬКО Энергоблоков ===
             else if (data.StartsWith("e100_") || data.StartsWith("e300_") || data.StartsWith("e1000_"))
             {
                 int energyBonus = data.StartsWith("e100_") ? 100 : (data.StartsWith("e300_") ? 300 : 1000);

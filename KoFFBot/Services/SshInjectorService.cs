@@ -18,16 +18,20 @@ public class SshInjectorService
     /// </summary>
     public async Task<bool> InjectSubscriptionAsync(
         string serverIp,
-        string rootPassword, // В реальном проекте пароли лучше хранить в защищенном хранилище, но для демона на том же сервере можно брать из конфига
+        string rootPassword, // Игнорируется для безопасности. Используем SSH-ключи.
         string uuid,
         string base64Payload,
         string email)
     {
         try
         {
-            _logger.LogInformation($"Начинаем Hot-Inject для {email} на сервер {serverIp}...");
+            _logger.LogInformation($"Начинаем защищенный Hot-Inject (SSH Key) для {email} на сервер {serverIp}...");
 
-            using var client = new SshClient(serverIp, "root", rootPassword);
+            // === ZERO TRUST: АВТОРИЗАЦИЯ ПО КЛЮЧАМ ===
+            string sshKeyPath = Environment.GetEnvironmentVariable("SSH_PRIVATE_KEY_PATH") ?? "/root/.ssh/id_ed25519";
+            var privateKeyFile = new PrivateKeyFile(sshKeyPath);
+            using var client = new SshClient(serverIp, "root", new[] { privateKeyFile });
+
             await client.ConnectAsync(CancellationToken.None);
 
             if (!client.IsConnected)
@@ -40,23 +44,12 @@ public class SshInjectorService
             var cmd1 = client.CreateCommand($"echo '{base64Payload}' > /var/www/xray-sub/{uuid}");
             await Task.Run(() => cmd1.Execute());
 
-            // 2. Горячее обновление Sing-box (Без перезагрузки службы!)
-            // В Sing-box нет удобного gRPC API как в Xray, но можно изменять config.json скриптом (jq) и делать reload.
-            // ВАЖНО: Это временный "грязный" инжект. Когда KoFFPanel включится, она перепишет конфиг красиво.
-
             string injectScript = $@"
-# Проверяем, установлен ли jq (утилита для работы с JSON в bash)
 if ! command -v jq &> /dev/null; then apt-get install -y jq; fi
-
 CONFIG_PATH='/etc/sing-box/config.json'
 
-# Внедряем пользователя в VLESS (ищем первый inbound типа vless)
 jq '(.inbounds[] | select(.type == ""vless"") | .users) += [{{""name"": ""KoFFBot_{email}"", ""uuid"": ""{uuid}"", ""flow"": ""xtls-rprx-vision""}}]' $CONFIG_PATH > /tmp/sb_tmp.json && mv /tmp/sb_tmp.json $CONFIG_PATH
-
-# Внедряем пользователя в Hysteria 2
 jq '(.inbounds[] | select(.type == ""hysteria2"") | .users) += [{{""name"": ""KoFFBot_{email}"", ""password"": ""{uuid}""}}]' $CONFIG_PATH > /tmp/sb_tmp.json && mv /tmp/sb_tmp.json $CONFIG_PATH
-
-# Мягко перезагружаем Sing-box (не прерывает текущие соединения)
 systemctl reload sing-box || systemctl restart sing-box
 ";
             var cmd2 = client.CreateCommand(injectScript);

@@ -22,4 +22,34 @@ public static class AntiCheatSigner
         string expectedSignature = GenerateSignature(telegramId, valueToSign);
         return expectedSignature == signature;
     }
+
+    // === ZERO TRUST: ПРОВЕРКА ПОДЛИННОСТИ ОТ TELEGRAM ===
+    public static bool ValidateTelegramInitData(string initData, string botToken)
+    {
+        if (string.IsNullOrWhiteSpace(initData) || string.IsNullOrWhiteSpace(botToken)) return false;
+        try
+        {
+            var parsed = initData.Split('&')
+                .Select(p => p.Split('='))
+                .Where(p => p.Length == 2)
+                .ToDictionary(p => p[0], p => Uri.UnescapeDataString(p[1]));
+
+            if (!parsed.TryGetValue("hash", out string? hash)) return false;
+
+            var dataCheckString = string.Join("\n", parsed
+                .Where(kvp => kvp.Key != "hash")
+                .OrderBy(kvp => kvp.Key)
+                .Select(kvp => $"{kvp.Key}={kvp.Value}"));
+
+            using var hmacSha256 = new HMACSHA256(Encoding.UTF8.GetBytes("WebAppData"));
+            byte[] secretKey = hmacSha256.ComputeHash(Encoding.UTF8.GetBytes(botToken));
+
+            using var hmac = new HMACSHA256(secretKey);
+            byte[] computedHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(dataCheckString));
+            string computedHashHex = Convert.ToHexString(computedHash).ToLower();
+
+            return computedHashHex == hash;
+        }
+        catch { return false; }
+    }
 }

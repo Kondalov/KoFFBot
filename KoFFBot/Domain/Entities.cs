@@ -15,7 +15,6 @@ public sealed record TelegramUser
 {
     [Key]
     public long TelegramId { get; set; }
-    // УДАЛЕНО: public string? Username { get; set; }
     public string? FirstName { get; set; }
     public string LanguageCode { get; set; } = "ru";
     public int ReferralCount { get; set; }
@@ -82,6 +81,12 @@ public sealed record GameProfile
     // === АНТИ-ФРОД: Лимит 2 победы в месяц ===
     public int MonthlyBossKills { get; set; } = 0;
     public DateTime LastBossKillDate { get; set; } = DateTime.UtcNow;
+
+    // === Защищенный ежедневный бонус ===
+    public DateTime LastDailyBonusDate { get; set; } = DateTime.MinValue;
+
+    // === НОВОЕ (ZERO TRUST): Таймер сессии для защиты от SpeedHack/Replay ===
+    public DateTime CurrentGameStartTime { get; set; } = DateTime.MinValue;
 
     // Античит для энергии
     public string EnergySignature { get; set; } = string.Empty;

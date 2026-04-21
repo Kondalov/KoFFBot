@@ -26,7 +26,14 @@ public class GameService
         var profile = await _dbContext.GameProfiles.FirstOrDefaultAsync(p => p.TelegramId == telegramId, ct);
         if (profile == null)
         {
-            profile = new GameProfile { TelegramId = telegramId, CurrentEnergy = 50, LastEnergyUpdate = DateTime.UtcNow, BossKills = 0 };
+            profile = new GameProfile
+            {
+                TelegramId = telegramId,
+                CurrentEnergy = 50,
+                LastEnergyUpdate = DateTime.UtcNow,
+                BossKills = 0,
+                LastDailyBonusDate = DateTime.MinValue // Для нового ежедневного бонуса
+            };
             profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
             _dbContext.GameProfiles.Add(profile);
             await _dbContext.SaveChangesAsync(ct);
@@ -50,18 +57,31 @@ public class GameService
         if (profile.CurrentEnergy <= 0) return (false, "Недостаточно энергии! Подождите или пополните запас.", 0);
 
         profile.CurrentEnergy -= 1;
+        // === ZERO TRUST: Запускаем таймер сессии ===
+        profile.CurrentGameStartTime = DateTime.UtcNow;
         profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
 
         await _dbContext.SaveChangesAsync(ct);
         return (true, "Игра начата!", profile.CurrentEnergy);
     }
 
-    public async Task<(bool Success, string Message)> SubmitScoreAsync(long telegramId, long score, string clientSignature, CancellationToken ct)
+    public async Task<(bool Success, string Message)> SubmitScoreAsync(long telegramId, long score, CancellationToken ct)
     {
         var profile = await GetOrCreateProfileAsync(telegramId, ct);
         if (profile.IsBanned) return (false, "Аккаунт заблокирован.");
 
-        if (!AntiCheatSigner.VerifySignature(telegramId, score, clientSignature)) return (false, "Ошибка синхронизации данных.");
+        // === ZERO TRUST: ЗАЩИТА ОТ СПИДХАКА (Time Lock) ===
+        double elapsedSeconds = (DateTime.UtcNow - profile.CurrentGameStartTime).TotalSeconds;
+        if (elapsedSeconds < 1) elapsedSeconds = 1;
+
+        // Лимит: Максимум 150 очков в секунду. Если больше - это 100% читер.
+        if ((score / elapsedSeconds) > 150)
+        {
+            profile.IsBanned = true;
+            profile.BanReason = "SpeedHack detected (TimeLock Limit Exceeded).";
+            await _dbContext.SaveChangesAsync(ct);
+            return (false, "Обнаружена аномальная скорость. Аккаунт заблокирован.");
+        }
 
         var record = await _dbContext.LeaderboardRecords.FirstOrDefaultAsync(r => r.TelegramId == telegramId, ct);
 
@@ -82,25 +102,32 @@ public class GameService
         await _dbContext.SaveChangesAsync(ct); return (true, "Результат сохранен!");
     }
 
-    public async Task<(bool Success, string Message)> ProcessBossVictoryAsync(long telegramId, string clientSignature, CancellationToken ct)
+    public async Task<(bool Success, string Message)> ProcessBossVictoryAsync(long telegramId, CancellationToken ct)
     {
         var profile = await GetOrCreateProfileAsync(telegramId, ct);
         if (profile.IsBanned) return (false, "Аккаунт заблокирован.");
-        if (!AntiCheatSigner.VerifySignature(telegramId, 1000, clientSignature)) return (false, "Неверный код победы.");
 
-        // Проверка сброса месяца
+        // === ZERO TRUST: ЗАЩИТА ОТ СПИДХАКА ДЛЯ БОССА ===
+        // Убийство босса физически занимает 20 секунд.
+        double elapsedSeconds = (DateTime.UtcNow - profile.CurrentGameStartTime).TotalSeconds;
+        if (elapsedSeconds < 19)
+        {
+            profile.IsBanned = true;
+            profile.BanReason = "Boss SpeedHack (TimeLock Violation).";
+            await _dbContext.SaveChangesAsync(ct);
+            return (false, "Аномальное время победы. Аккаунт заблокирован.");
+        }
+
         if (profile.LastBossKillDate.Month != DateTime.UtcNow.Month || profile.LastBossKillDate.Year != DateTime.UtcNow.Year)
         {
             profile.MonthlyBossKills = 0;
         }
 
-        // === ЖЕСТКИЙ АНТИ-ФРОД: Не больше 2 побед в месяц ===
         if (profile.MonthlyBossKills >= 2)
         {
             return (false, "Лимит побед исчерпан! В этом месяце вирус мутировал, доступ не выдан.");
         }
 
-        // Увеличиваем сложность для следующего раза
         profile.BossKills += 1;
         profile.MonthlyBossKills += 1;
         profile.LastBossKillDate = DateTime.UtcNow;
@@ -119,6 +146,7 @@ public class GameService
         return (false, "Активный ключ не найден. Сначала запустите туннель.");
     }
 
+    // === ТОТ САМЫЙ МЕТОД, КОТОРЫЙ ПОТЕРЯЛСЯ (ДЛЯ ЧИТ-КОДА АДМИНА) ===
     public async Task<(bool Success, string Message, int NewEnergy)> AddCheatEnergyAsync(long telegramId, int amount, CancellationToken ct)
     {
         var profile = await GetOrCreateProfileAsync(telegramId, ct);
@@ -136,6 +164,31 @@ public class GameService
         profile.LastBossKillDate = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         await _dbContext.SaveChangesAsync(ct);
         return (true, "Счетчик боссов сброшен на 0!");
+    }
+
+    // === НОВЫЙ МЕТОД ДЛЯ ЕЖЕДНЕВНОГО БОНУСА ===
+    public async Task<(bool Success, string Message, int NewEnergy)> ClaimDailyBonusAsync(long telegramId, CancellationToken ct)
+    {
+        var profile = await GetOrCreateProfileAsync(telegramId, ct);
+
+        if (profile.IsBanned)
+            return (false, "Аккаунт заблокирован.", profile.CurrentEnergy);
+
+        // Строгая серверная проверка: наступил ли новый календарный день по UTC
+        if (profile.LastDailyBonusDate.Date >= DateTime.UtcNow.Date)
+        {
+            return (false, "Вы уже получали бонус сегодня. Возвращайтесь завтра!", profile.CurrentEnergy);
+        }
+
+        // Начисляем ровно 5 энергии
+        profile.CurrentEnergy += 5;
+        profile.LastDailyBonusDate = DateTime.UtcNow;
+
+        // Обязательно переподписываем баланс для античита
+        profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
+
+        await _dbContext.SaveChangesAsync(ct);
+        return (true, "Ежедневный бонус +5 ⚡ успешно начислен!", profile.CurrentEnergy);
     }
 
     public async Task<object> GetLeaderboardAsync(CancellationToken ct)

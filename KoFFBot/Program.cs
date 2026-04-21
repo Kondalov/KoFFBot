@@ -16,6 +16,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Collections.Concurrent;
+using KoFFBot.Security;
 
 namespace KoFFBot;
 
@@ -82,10 +83,14 @@ public static class Program
             ";
             db.Database.ExecuteSqlRaw(createTablesSql);
 
-            // === ИСПРАВЛЕНИЕ: Безопасное добавление колонки BossKills ===
+            // Безопасное добавление новых колонок (миграции)
             try { db.Database.ExecuteSqlRaw("ALTER TABLE \"GameProfiles\" ADD COLUMN \"BossKills\" INTEGER NOT NULL DEFAULT 0;"); } catch { }
             try { db.Database.ExecuteSqlRaw("ALTER TABLE \"GameProfiles\" ADD COLUMN \"MonthlyBossKills\" INTEGER NOT NULL DEFAULT 0;"); } catch { }
             try { db.Database.ExecuteSqlRaw("ALTER TABLE \"GameProfiles\" ADD COLUMN \"LastBossKillDate\" TEXT NOT NULL DEFAULT '2000-01-01 00:00:00';"); } catch { }
+            try { db.Database.ExecuteSqlRaw("ALTER TABLE \"GameProfiles\" ADD COLUMN \"LastDailyBonusDate\" TEXT NOT NULL DEFAULT '0001-01-01 00:00:00';"); } catch { }
+
+            // === ИСПРАВЛЕНИЕ: Добавлена отсутствующая колонка для защиты сессии (TimeLock) ===
+            try { db.Database.ExecuteSqlRaw("ALTER TABLE \"GameProfiles\" ADD COLUMN \"CurrentGameStartTime\" TEXT NOT NULL DEFAULT '0001-01-01 00:00:00';"); } catch { }
         }
 
         app.Use(async (context, next) =>
@@ -137,11 +142,7 @@ public static class Program
             var sub = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.TelegramId == tgId && s.IsActive);
             if (user == null) return Results.NotFound("Пользователь не найден");
 
-            // Проверяем, является ли пользователь админом
             bool isAdmin = long.TryParse(adminIdStr, out long adminId) && tgId == adminId;
-
-            // ПРАВИЛО 238: Достаем секрет для античита строго из .env!
-            string gameSecret = Environment.GetEnvironmentVariable("ANTI_CHEAT_SECRET") ?? "";
 
             return Results.Ok(new
             {
@@ -155,42 +156,122 @@ public static class Program
                 Uuid = sub?.Uuid ?? "",
                 ExpiryDate = sub?.ExpiryDate,
                 IsAdmin = isAdmin,
-                GameSecret = gameSecret // Передаем в UI только в оперативной памяти
+                GameSecret = "" // Убрали утечку секрета на клиент (ZERO TRUST)
             });
         });
 
         app.MapPost("/api/webapp/generate", async (WebAppActionRequest req, BotDbContext db, SubscriptionGenerator generator) => { var user = await db.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == req.TelegramId); if (user == null) return Results.BadRequest(); var existingSub = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.TelegramId == req.TelegramId && s.IsActive); if (existingSub != null) return Results.Ok(); int reserveCount = await db.VpnSubscriptions.CountAsync(s => s.TelegramId == 0 && s.IsActive); if (reserveCount == 0) return Results.Problem("Нет резервных серверов."); var (success, uuid, serverIp, err) = await generator.GenerateNewSubscriptionAsync(req.TelegramId, $"tg_{req.TelegramId}", CancellationToken.None); if (!success) return Results.Problem(err); return Results.Ok(); });
         app.MapGet("/api/webapp/inbox", async (long tgId, BotDbContext db) => { var msgs = await db.SupportMessages.Where(m => m.TelegramId == tgId).OrderBy(m => m.CreatedAt).ToListAsync(); var unread = msgs.Where(m => m.IsFromAdmin && !m.IsRead).ToList(); foreach (var u in unread) u.IsRead = true; if (unread.Any()) await db.SaveChangesAsync(); return Results.Ok(msgs.Select(m => new { m.Id, m.Text, m.IsFromAdmin, CreatedAt = m.CreatedAt.ToString("HH:mm dd.MM") })); });
         app.MapGet("/api/webapp/inbox/unread", async (long tgId, BotDbContext db) => { return Results.Ok(new { UnreadCount = await db.SupportMessages.CountAsync(m => m.TelegramId == tgId && m.IsFromAdmin && !m.IsRead) }); });
-        app.MapPost("/api/webapp/buy", async (BuyRequest req, BotDbContext db, ITelegramBotClient bot) => { var user = await db.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == req.TelegramId); if (user == null) return Results.BadRequest(); db.SupportMessages.Add(new SupportMessage { TelegramId = req.TelegramId, Text = $"🛒 Заявка отправлена: {req.TariffName}\nОжидайте ответа администратора с реквизитами.", IsFromAdmin = false, IsRead = true, CreatedAt = DateTime.UtcNow }); await db.SaveChangesAsync(); if (long.TryParse(adminIdStr, out long adminId)) { var kb = new InlineKeyboardMarkup(new[] { new[] { InlineKeyboardButton.WithCallbackData("↩️ Ответить", $"reply_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("💰 Продлить", $"renew_{req.TelegramId}") }, new[] { InlineKeyboardButton.WithCallbackData("💳 Мои реквизиты", $"req_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("🙈 Скрыть", $"hide_{req.TelegramId}") } }); string safeName = System.Net.WebUtility.HtmlEncode(user.FirstName ?? "Без имени"); string adminText = $"🛒 <b>ЗАЯВКА НА ТАРИФ</b>\nОт: {safeName}\nID: <code>{req.TelegramId}</code>\nТариф: <b>{req.TariffName}</b>"; try { await bot.SendMessage(chatId: adminId, text: adminText, parseMode: Telegram.Bot.Types.Enums.ParseMode.Html, replyMarkup: kb); } catch { } } return Results.Ok(); });
-        app.MapPost("/api/webapp/send_message", async (UserMessageRequest req, BotDbContext db, ITelegramBotClient bot) => { var user = await db.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == req.TelegramId); if (user == null || string.IsNullOrWhiteSpace(req.Text)) return Results.BadRequest(); if (req.Text.Length > 500) return Results.BadRequest("Слишком длинное сообщение."); if (_spamFilter.TryGetValue(req.TelegramId, out DateTime lastMsg) && (DateTime.UtcNow - lastMsg).TotalSeconds < 10) return Results.BadRequest("Пожалуйста, подождите 10 секунд перед отправкой следующего сообщения."); _spamFilter[req.TelegramId] = DateTime.UtcNow; db.SupportMessages.Add(new SupportMessage { TelegramId = req.TelegramId, Text = req.Text, IsFromAdmin = false, IsRead = true, CreatedAt = DateTime.UtcNow }); await db.SaveChangesAsync(); if (long.TryParse(adminIdStr, out long adminId)) { var kb = new InlineKeyboardMarkup(new[] { new[] { InlineKeyboardButton.WithCallbackData("↩️ Ответить", $"reply_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("💰 Продлить", $"renew_{req.TelegramId}") }, new[] { InlineKeyboardButton.WithCallbackData("💳 Мои реквизиты", $"req_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("🙈 Скрыть", $"hide_{req.TelegramId}") } }); string safeName = System.Net.WebUtility.HtmlEncode(user.FirstName ?? "Без имени"); string safeText = System.Net.WebUtility.HtmlEncode(req.Text); string adminText = $"💬 <b>НОВОЕ СООБЩЕНИЕ</b>\nОт: {safeName}\nID: <code>{req.TelegramId}</code>\n\nТекст: {safeText}"; try { await bot.SendMessage(chatId: adminId, text: adminText, parseMode: Telegram.Bot.Types.Enums.ParseMode.Html, replyMarkup: kb); } catch { } } return Results.Ok(); });
 
+        // === ИСПРАВЛЕНИЕ: Восстановление отправки сообщений администратору ===
+        app.MapPost("/api/webapp/buy", async (BuyRequest req, BotDbContext db, ITelegramBotClient bot) => {
+            var user = await db.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == req.TelegramId);
+            if (user == null) return Results.BadRequest();
+            db.SupportMessages.Add(new SupportMessage { TelegramId = req.TelegramId, Text = $"🛒 Заявка отправлена: {req.TariffName}\nОжидайте ответа администратора с реквизитами.", IsFromAdmin = false, IsRead = true, CreatedAt = DateTime.UtcNow });
+            await db.SaveChangesAsync();
+
+            string currentAdminId = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ') ?? "";
+            if (long.TryParse(currentAdminId, out long adminId))
+            {
+                var kb = new InlineKeyboardMarkup(new[] { new[] { InlineKeyboardButton.WithCallbackData("↩️ Ответить", $"reply_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("💰 Продлить", $"renew_{req.TelegramId}") }, new[] { InlineKeyboardButton.WithCallbackData("💳 Мои реквизиты", $"req_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("🙈 Скрыть", $"hide_{req.TelegramId}") } });
+                string safeName = System.Net.WebUtility.HtmlEncode(user.FirstName ?? "Без имени");
+                string adminText = $"🛒 <b>ЗАЯВКА НА ТАРИФ</b>\nОт: {safeName}\nID: <code>{req.TelegramId}</code>\nТариф: <b>{req.TariffName}</b>";
+                try { await bot.SendMessage(chatId: adminId, text: adminText, parseMode: Telegram.Bot.Types.Enums.ParseMode.Html, replyMarkup: kb); } catch (Exception ex) { BotLogger.Log("ERROR", $"Ошибка отправки в ТГ: {ex.Message}"); }
+            }
+            return Results.Ok();
+        });
+
+        app.MapPost("/api/webapp/send_message", async (UserMessageRequest req, BotDbContext db, ITelegramBotClient bot) => {
+            var user = await db.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == req.TelegramId);
+            if (user == null || string.IsNullOrWhiteSpace(req.Text)) return Results.BadRequest();
+            if (req.Text.Length > 500) return Results.BadRequest("Слишком длинное сообщение.");
+            if (_spamFilter.TryGetValue(req.TelegramId, out DateTime lastMsg) && (DateTime.UtcNow - lastMsg).TotalSeconds < 10) return Results.BadRequest("Пожалуйста, подождите 10 секунд перед отправкой следующего сообщения.");
+            _spamFilter[req.TelegramId] = DateTime.UtcNow;
+            db.SupportMessages.Add(new SupportMessage { TelegramId = req.TelegramId, Text = req.Text, IsFromAdmin = false, IsRead = true, CreatedAt = DateTime.UtcNow });
+            await db.SaveChangesAsync();
+
+            string currentAdminId = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ') ?? "";
+            if (long.TryParse(currentAdminId, out long adminId))
+            {
+                var kb = new InlineKeyboardMarkup(new[] { new[] { InlineKeyboardButton.WithCallbackData("↩️ Ответить", $"reply_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("💰 Продлить", $"renew_{req.TelegramId}") }, new[] { InlineKeyboardButton.WithCallbackData("💳 Мои реквизиты", $"req_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("🙈 Скрыть", $"hide_{req.TelegramId}") } });
+                string safeName = System.Net.WebUtility.HtmlEncode(user.FirstName ?? "Без имени");
+                string safeText = System.Net.WebUtility.HtmlEncode(req.Text);
+                string adminText = $"💬 <b>НОВОЕ СООБЩЕНИЕ</b>\nОт: {safeName}\nID: <code>{req.TelegramId}</code>\n\nТекст: {safeText}";
+                try { await bot.SendMessage(chatId: adminId, text: adminText, parseMode: Telegram.Bot.Types.Enums.ParseMode.Html, replyMarkup: kb); } catch (Exception ex) { BotLogger.Log("ERROR", $"Ошибка отправки в ТГ: {ex.Message}"); }
+            }
+            return Results.Ok();
+        });
+
+        // === ЗАЩИЩЕННЫЕ API ЭНДПОИНТЫ ИГРЫ (ZERO TRUST) ===
         app.MapGet("/api/game/profile", async (long tgId, GameService gameService) => {
             var profile = await gameService.GetOrCreateProfileAsync(tgId, CancellationToken.None);
             if (profile.IsBanned) return Results.BadRequest("Аккаунт заблокирован.");
 
-            // Сброс месяца при загрузке профиля (если месяц прошел)
             if (profile.LastBossKillDate.Month != DateTime.UtcNow.Month || profile.LastBossKillDate.Year != DateTime.UtcNow.Year)
-            {
                 profile.MonthlyBossKills = 0;
-            }
 
             return Results.Ok(new
             {
                 Energy = profile.CurrentEnergy,
                 IsBanned = profile.IsBanned,
                 BossKills = profile.BossKills,
-                MonthlyBossKills = profile.MonthlyBossKills // Передаем лимит на фронт
+                MonthlyBossKills = profile.MonthlyBossKills,
+                CanClaimDaily = profile.LastDailyBonusDate.Date < DateTime.UtcNow.Date
             });
         });
-        app.MapPost("/api/game/start", async (GameActionRequest req, GameService gameService) => { var result = await gameService.TryStartGameAsync(req.TelegramId, CancellationToken.None); if (!result.Success) return Results.BadRequest(result.Message); return Results.Ok(new { Message = result.Message, RemainingEnergy = result.RemainingEnergy }); });
-        app.MapPost("/api/game/submit", async (GameScoreRequest req, GameService gameService) => { var result = await gameService.SubmitScoreAsync(req.TelegramId, req.Score, req.Signature, CancellationToken.None); if (!result.Success) return Results.BadRequest(result.Message); return Results.Ok(new { Message = result.Message }); });
-        app.MapPost("/api/game/boss_victory", async (GameActionRequest req, GameService gameService) => { var result = await gameService.ProcessBossVictoryAsync(req.TelegramId, req.Signature, CancellationToken.None); if (!result.Success) return Results.BadRequest(result.Message); return Results.Ok(new { Message = result.Message }); });
-        app.MapPost("/api/game/cheat", async (GameActionRequest req, GameService gameService) => { if (!long.TryParse(adminIdStr, out long adminId) || req.TelegramId != adminId) return Results.BadRequest("У вас нет прав."); var result = await gameService.AddCheatEnergyAsync(req.TelegramId, 50, CancellationToken.None); return Results.Ok(new { Message = result.Message, NewEnergy = result.NewEnergy }); });
-        app.MapPost("/api/game/reset_boss", async (GameActionRequest req, GameService gameService) => { if (!long.TryParse(adminIdStr, out long adminId) || req.TelegramId != adminId) return Results.BadRequest("У вас нет прав."); var result = await gameService.ResetBossStatsAsync(req.TelegramId, CancellationToken.None); return Results.Ok(new { Message = result.Message }); });
 
-        app.MapGet("/api/game/leaderboard", async (GameService gameService) =>
-        {
+        app.MapPost("/api/game/daily_bonus", async (GameActionRequest req, GameService gameService) => {
+            string token = Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "";
+            if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
+            var result = await gameService.ClaimDailyBonusAsync(req.TelegramId, CancellationToken.None);
+            if (!result.Success) return Results.BadRequest(result.Message);
+            return Results.Ok(new { Message = result.Message, NewEnergy = result.NewEnergy });
+        });
+
+        app.MapPost("/api/game/start", async (GameActionRequest req, GameService gameService) => {
+            string token = Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "";
+            if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
+            var result = await gameService.TryStartGameAsync(req.TelegramId, CancellationToken.None);
+            if (!result.Success) return Results.BadRequest(result.Message);
+            return Results.Ok(new { Message = result.Message, RemainingEnergy = result.RemainingEnergy });
+        });
+
+        app.MapPost("/api/game/submit", async (GameScoreRequest req, GameService gameService) => {
+            string token = Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "";
+            if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
+            var result = await gameService.SubmitScoreAsync(req.TelegramId, req.Score, CancellationToken.None);
+            if (!result.Success) return Results.BadRequest(result.Message);
+            return Results.Ok(new { Message = result.Message });
+        });
+
+        app.MapPost("/api/game/boss_victory", async (GameActionRequest req, GameService gameService) => {
+            string token = Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "";
+            if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
+            var result = await gameService.ProcessBossVictoryAsync(req.TelegramId, CancellationToken.None);
+            if (!result.Success) return Results.BadRequest(result.Message);
+            return Results.Ok(new { Message = result.Message });
+        });
+
+        app.MapPost("/api/game/cheat", async (GameActionRequest req, GameService gameService) => {
+            string token = Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "";
+            if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
+            string currentAdminId = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ') ?? "";
+            if (!long.TryParse(currentAdminId, out long adminId) || req.TelegramId != adminId) return Results.BadRequest("У вас нет прав.");
+            var result = await gameService.AddCheatEnergyAsync(req.TelegramId, 50, CancellationToken.None);
+            return Results.Ok(new { Message = result.Message, NewEnergy = result.NewEnergy });
+        });
+
+        app.MapPost("/api/game/reset_boss", async (GameActionRequest req, GameService gameService) => {
+            string token = Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "";
+            if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
+            string currentAdminId = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ') ?? "";
+            if (!long.TryParse(currentAdminId, out long adminId) || req.TelegramId != adminId) return Results.BadRequest("У вас нет прав.");
+            var result = await gameService.ResetBossStatsAsync(req.TelegramId, CancellationToken.None);
+            return Results.Ok(new { Message = result.Message });
+        });
+
+        app.MapGet("/api/game/leaderboard", async (GameService gameService) => {
             var result = await gameService.GetLeaderboardAsync(CancellationToken.None);
             return Results.Ok(result);
         });

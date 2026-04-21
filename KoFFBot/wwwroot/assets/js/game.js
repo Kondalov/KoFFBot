@@ -45,7 +45,7 @@ window.isCountingDown = false; // НОВАЯ БЛОКИРОВКА ОТ ДВОЙ�
 function startGameUi() {
     window.gameLogger("startGameUi_CLICKED");
     try {
-        fetch('/api/game/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Signature: "" }) })
+        fetch('/api/game/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Signature: window.tg.initData }) })
             .then(async r => {
                 window.gameLogger("startGameUi_FETCH_RETURNED_Status_" + r.status);
                 if (!r.ok) { const err = await r.text(); window.tg.showAlert(err); return; }
@@ -68,7 +68,7 @@ window.startGameUi = startGameUi;
 function restartGame(keepScore = false) {
     window.gameLogger("restartGame_CLICKED");
     try {
-        fetch('/api/game/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Signature: "" }) })
+        fetch('/api/game/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Signature: window.tg.initData }) })
             .then(async r => {
                 window.gameLogger("restartGame_FETCH_RETURNED_Status_" + r.status);
                 if (!r.ok) { const err = await r.text(); window.tg.showAlert(err); return; }
@@ -395,9 +395,7 @@ async function showGameOver(wonBoss) {
         document.getElementById('goTitle').style.color = "var(--success)";
         window.showToast("⏳ ИЗВЛЕЧЕНИЕ ДОСТУПА...");
         try {
-            const sig = await window.generateSignature(window.userId, 1000);
-            await fetch('/api/game/boss_victory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Signature: sig }) });
-            // Обновляем количество убийств в памяти
+            await fetch('/api/game/boss_victory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Signature: window.tg.initData }) });
             window.bossKills = (window.bossKills || 0) + 1;
             window.tg.showAlert("🎉 ВИРУС УНИЧТОЖЕН! Вам начислено 7 дней элитного доступа!");
         } catch (e) { }
@@ -405,8 +403,7 @@ async function showGameOver(wonBoss) {
         document.getElementById('goTitle').innerText = "ВЗЛОМ ПРЕРВАН";
         document.getElementById('goTitle').style.color = "var(--danger)";
         try {
-            const sig = await window.generateSignature(window.userId, score);
-            await fetch('/api/game/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Score: score, Signature: sig }) });
+            await fetch('/api/game/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Score: score, Signature: window.tg.initData }) });
         } catch (e) { }
     }
 }

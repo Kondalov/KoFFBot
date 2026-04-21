@@ -3,19 +3,10 @@ try { window.tg.ready(); window.tg.expand(); if (window.tg.setHeaderColor) windo
 
 window.userId = window.tg.initDataUnsafe?.user?.id || 0;
 window.isAdmin = false;
-window.GAME_SECRET = "";
 
 let hasLoadedInbox = false;
 let pollingInterval = null;
 let lastUnreadCount = 0;
-
-window.generateSignature = async function (tgId, value) {
-    const payload = `${tgId}:${value}:${window.GAME_SECRET}`;
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey('raw', encoder.encode(window.GAME_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
-    return btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
-}
 
 function showToast(msg) {
     try { window.tg.HapticFeedback.notificationOccurred('success'); } catch (e) { }
@@ -83,6 +74,7 @@ function loadLeaderboard() {
         document.getElementById('lbContainer').innerHTML = '<div style="text-align: center; color: var(--danger);">Ошибка загрузки</div>';
     });
 }
+window.loadLeaderboard = loadLeaderboard;
 
 function loadInbox() {
     if (window.userId === 0) return;
@@ -91,10 +83,20 @@ function loadInbox() {
         if (!msgs || msgs.length === 0) { container.innerHTML = '<div style="text-align: center; color: var(--text-muted); margin-top: 20px;">Тут пока пусто.</div>'; return; }
         container.innerHTML = '';
         msgs.forEach(m => {
-            const div = document.createElement('div'); div.className = 'msg-bubble ' + (m.isFromAdmin ? 'msg-admin' : 'msg-system');
-            div.innerHTML = `${m.text.replace(/\n/g, '<br>')}<div class="msg-time">${m.createdAt || ''}</div>`; container.appendChild(div);
+            // === Бронебойная поддержка любого регистра JSON от сервера ===
+            const text = m.text || m.Text || '';
+            const isFromAdmin = m.isFromAdmin !== undefined ? m.isFromAdmin : m.IsFromAdmin;
+            const createdAt = m.createdAt || m.CreatedAt || '';
+
+            const div = document.createElement('div');
+            div.className = 'msg-bubble ' + (isFromAdmin ? 'msg-admin' : 'msg-system');
+            div.innerHTML = `${text.replace(/\n/g, '<br>')}<div class="msg-time">${createdAt}</div>`;
+            container.appendChild(div);
         });
-        container.scrollTop = container.scrollHeight; hasLoadedInbox = true; document.getElementById('inboxBadge').style.display = 'none'; lastUnreadCount = 0;
+        container.scrollTop = container.scrollHeight;
+        hasLoadedInbox = true;
+        document.getElementById('inboxBadge').style.display = 'none';
+        lastUnreadCount = 0;
     }).catch(() => { });
 }
 window.loadInbox = loadInbox;
@@ -143,7 +145,8 @@ function loadProfile(isSilent = false) {
         if (!gData.isBanned) {
             document.getElementById('energyValue').innerText = gData.energy || 0;
             window.bossKills = gData.bossKills || 0;
-            window.monthlyBossKills = gData.monthlyBossKills || 0; // Сохраняем лимиты месяца!
+            window.monthlyBossKills = gData.monthlyBossKills || 0;
+            window.canClaimDaily = gData.canClaimDaily === true;
         }
     }).catch(() => { });
 
@@ -152,20 +155,15 @@ function loadProfile(isSilent = false) {
     }).then(data => {
         if (!isSilent) {
             document.getElementById('loader').style.display = 'none';
-
-            // === ВОТ ЭТА СТРОКА: ГАРАНТИРОВАННО ВКЛЮЧАЕТ МЕНЮ ===
             document.getElementById('bottomNav').style.display = 'flex';
-
             if (!document.querySelector('.tab-content.active')) { document.getElementById('tab-profile').classList.add('active'); }
         }
 
         window.isAdmin = data.isAdmin === true;
-        window.GAME_SECRET = data.gameSecret || "";
 
         document.getElementById('userIdDisplay').innerText = data.telegramId || window.userId;
         document.getElementById('refCount').innerText = (data.referralCount || 0) + " друзей";
 
-        // === ВЫЗОВ ПРОВЕРКИ УМНЫХ СУНДУКОВ ===
         if (window.checkChests) window.checkChests(data.referralCount || 0);
 
         if (data.hasSubscription) {
@@ -202,7 +200,6 @@ function loadProfile(isSilent = false) {
         if (!isSilent) { checkUnread(); startPolling(); }
     }).catch(e => { if (!isSilent) { document.getElementById('loader').style.animation = 'none'; document.getElementById('loader').innerHTML = e.message === "not_found" ? "⚠️ Отправьте боту /start" : "❌ Ошибка сервера."; } });
 }
-
 window.loadProfile = loadProfile;
 
 function generateVpn(btn) {
@@ -225,7 +222,7 @@ function toggleInfoModal() {
 }
 window.toggleInfoModal = toggleInfoModal;
 
-// === ВОССТАНОВЛЕННЫЙ РЕЖИМ БОГА ДЛЯ ЭНЕРГИИ ===
+// === ЗАЩИЩЕННЫЙ РЕЖИМ БОГА ДЛЯ ЭНЕРГИИ ===
 let energyCheatTaps = 0;
 let energyCheatTimer = null;
 window.handleCheatTap = function () {
@@ -239,7 +236,7 @@ window.handleCheatTap = function () {
         fetch('/api/game/cheat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ TelegramId: window.userId, Signature: "" })
+            body: JSON.stringify({ TelegramId: window.userId, Signature: window.tg.initData })
         })
             .then(r => r.json())
             .then(res => {
@@ -251,7 +248,7 @@ window.handleCheatTap = function () {
     }
 };
 
-// === СБРОС БОССА ДЛЯ АДМИНА ===
+// === ЗАЩИЩЕННЫЙ СБРОС БОССА ДЛЯ АДМИНА ===
 let resetBossTaps = 0;
 let resetBossTimer = null;
 window.handleResetBossTap = function () {
@@ -265,7 +262,7 @@ window.handleResetBossTap = function () {
         fetch('/api/game/reset_boss', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ TelegramId: window.userId, Signature: "" })
+            body: JSON.stringify({ TelegramId: window.userId, Signature: window.tg.initData })
         })
             .then(r => r.json())
             .then(res => {
@@ -275,19 +272,18 @@ window.handleResetBossTap = function () {
     }
 };
 
-// === МЕНЕДЖЕР СЕКРЕТНЫХ СУНДУКОВ (Daily, Рефералы, Happy Hours, Удержание) ===
+// === МЕНЕДЖЕР СЕКРЕТНЫХ СУНДУКОВ ===
 window.currentChestReason = "";
 
 window.checkChests = function (refCount) {
     const chestEl = document.getElementById('retentionChest');
-    if (!chestEl || chestEl.style.display === 'block') return; // Если уже висит - не перебиваем
+    if (!chestEl || chestEl.style.display === 'block') return;
 
     const today = new Date().toDateString();
 
-    // 1. Ежедневный бонус
-    const lastDaily = localStorage.getItem('koff_daily_chest');
-    if (lastDaily !== today) {
-        window.currentChestReason = "Ежедневный вход в приложение.";
+    // 1. Ежедневный бонус (УМНАЯ ПРОВЕРКА ЧЕРЕЗ БЭКЕНД)
+    if (window.canClaimDaily) {
+        window.currentChestReason = "DAILY_BACKEND";
         showChestAnimation(chestEl);
         return;
     }
@@ -304,9 +300,9 @@ window.checkChests = function (refCount) {
         }
     }
 
-    // 3. Счастливые часы (Вторник и Пятница с 18:00 до 20:00 UTC)
+    // 3. Счастливые часы
     const now = new Date();
-    const day = now.getUTCDay(); // 0=Вс, 2=Вт, 5=Пт
+    const day = now.getUTCDay();
     const hour = now.getUTCHours();
     if ((day === 2 || day === 5) && (hour >= 18 && hour < 20)) {
         const lastHappyHour = localStorage.getItem('koff_happy_hour_chest');
@@ -340,11 +336,31 @@ window.claimRetentionBonus = function () {
     const chest = document.getElementById('retentionChest');
     if (chest) chest.style.display = 'none';
 
+    // === БЕЗОПАСНОЕ НАЧИСЛЕНИЕ ЕЖЕДНЕВНОГО БОНУСА ===
+    if (window.currentChestReason === "DAILY_BACKEND") {
+        fetch('/api/game/daily_bonus', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ TelegramId: window.userId, Signature: window.tg.initData })
+        })
+            .then(async r => {
+                if (!r.ok) {
+                    const err = await r.text();
+                    window.tg.showAlert("❌ " + err);
+                } else {
+                    const res = await r.json();
+                    document.getElementById('energyValue').innerText = res.newEnergy;
+                    window.canClaimDaily = false;
+                    window.showToast("🎁 " + res.Message);
+                }
+            }).catch(() => window.showToast("❌ Ошибка связи с сервером."));
+        return;
+    }
+
+    // === ОСТАЛЬНЫЕ БОНУСЫ (через инбокс админу) ===
     let msgText = `🎁 СЕКРЕТНЫЙ СУНДУК:\n${window.currentChestReason}\nПрошу зачислить бонусную энергию.`;
 
-    // Обновляем localStorage в зависимости от того, что выдали
     const today = new Date().toDateString();
-    if (window.currentChestReason.includes("Ежедневный")) localStorage.setItem('koff_daily_chest', today);
     if (window.currentChestReason.includes("Счастливые")) localStorage.setItem('koff_happy_hour_chest', today);
     if (window.currentChestReason.includes("Реферальный")) {
         let pending = localStorage.getItem('koff_ref_chest_pending');
@@ -372,7 +388,6 @@ function moveGecko() {
     const gecko = document.getElementById('gecko');
     const tab = document.getElementById('tab-leaderboard');
 
-    // Двигаем только если вкладка активна
     if (gecko && tab && tab.classList.contains('active')) {
         const dx = geckoTargetX - geckoPosX;
         const dy = geckoTargetY - geckoPosY;
@@ -386,13 +401,12 @@ function moveGecko() {
         } else {
             gecko.classList.remove('walking');
 
-            // ИСПРАВЛЕНИЕ: Запускаем таймер смены цели строго один раз
             if (!isGeckoWaiting) {
                 isGeckoWaiting = true;
                 setTimeout(() => {
                     geckoTargetX = Math.random() * (window.innerWidth - 100) + 50;
                     geckoTargetY = Math.random() * (window.innerHeight - 100) + 50;
-                    isGeckoWaiting = false; // Снимаем блок после выбора новой цели
+                    isGeckoWaiting = false;
                 }, 1000);
             }
         }
@@ -416,18 +430,15 @@ function handleGeckoLook(clientX, clientY) {
     const angleToMouse = Math.atan2(clientY - geckoCenterY, clientX - geckoCenterX);
     const relativeAngle = angleToMouse - (geckoAngle - Math.PI / 2);
 
-    // Ограничиваем поворот головы
     const limitedAngle = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, relativeAngle));
     head.style.transform = `rotate(${limitedAngle}rad)`;
 }
 
-// Отслеживание мыши (ПК) и пальца (Смартфон)
 document.addEventListener('mousemove', (e) => handleGeckoLook(e.clientX, e.clientY));
 document.addEventListener('touchmove', (e) => {
     if (e.touches.length > 0) handleGeckoLook(e.touches[0].clientX, e.touches[0].clientY);
 });
 
-// Запуск цикла анимации
 if (!window.geckoInitialized) {
     window.geckoInitialized = true;
     moveGecko();
