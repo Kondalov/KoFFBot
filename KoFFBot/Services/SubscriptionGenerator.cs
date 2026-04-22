@@ -1,4 +1,4 @@
-﻿using KoFFBot.Data;
+using KoFFBot.Data;
 using KoFFBot.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -10,10 +10,10 @@ namespace KoFFBot.Services;
 
 public class SubscriptionGenerator
 {
-    private readonly BotDbContext _dbContext;
+    private readonly VpnDbContext _dbContext;
     private readonly ILogger<SubscriptionGenerator> _logger;
 
-    public SubscriptionGenerator(BotDbContext dbContext, ILogger<SubscriptionGenerator> logger)
+    public SubscriptionGenerator(VpnDbContext dbContext, ILogger<SubscriptionGenerator> logger)
     {
         _dbContext = dbContext;
         _logger = logger;
@@ -24,7 +24,6 @@ public class SubscriptionGenerator
     {
         try
         {
-            // УМНЫЙ АЛГОРИТМ: Ищем свободный ключ в резервном пуле (TelegramId == 0)
             var reserveSub = await _dbContext.VpnSubscriptions
                 .FirstOrDefaultAsync(s => s.TelegramId == 0 && s.IsActive, ct);
 
@@ -34,21 +33,15 @@ public class SubscriptionGenerator
                 return (false, null, null, "⏳ Нет доступных серверов резерва. Обратитесь к администратору.");
             }
 
-            // Бронируем ключ за пользователем
             reserveSub.TelegramId = telegramId;
             reserveSub.Email = email;
-
-            // === ИСПРАВЛЕНИЕ АРХИТЕКТУРЫ ===
-            // Обновляем дату! Тестовый период (например, 3 дня) начинается ИМЕННО СЕЙЧАС.
             reserveSub.ExpiryDate = DateTime.UtcNow.AddDays(3);
-
-            // Ставим статус PendingUpdate, чтобы панель на ПК забрала этот ключ из пула в активные!
             reserveSub.SyncStatus = SyncStatus.PendingUpdate;
             reserveSub.LastModifiedAt = DateTime.UtcNow;
 
             await _dbContext.SaveChangesAsync(ct);
 
-            _logger.LogInformation($"Выдан резервный ключ (UUID: {reserveSub.Uuid}) для ID: {telegramId}. Срок установлен до {reserveSub.ExpiryDate:dd.MM.yyyy}");
+            _logger.LogInformation("Выдан резервный ключ (UUID: {Uuid}) для ID: {TelegramId}. Срок: {ExpiryDate:dd.MM.yyyy}", reserveSub.Uuid, telegramId, reserveSub.ExpiryDate);
             return (true, reserveSub.Uuid, reserveSub.ServerIp, null);
         }
         catch (Exception ex)

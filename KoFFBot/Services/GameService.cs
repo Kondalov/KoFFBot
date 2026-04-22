@@ -1,4 +1,4 @@
-﻿using KoFFBot.Data;
+using KoFFBot.Data;
 using KoFFBot.Domain;
 using KoFFBot.Security;
 using Microsoft.EntityFrameworkCore;
@@ -12,10 +12,10 @@ namespace KoFFBot.Services;
 
 public class GameService
 {
-    private readonly BotDbContext _dbContext;
+    private readonly GameDbContext _dbContext;
     private readonly ILogger<GameService> _logger;
 
-    public GameService(BotDbContext dbContext, ILogger<GameService> logger)
+    public GameService(GameDbContext dbContext, ILogger<GameService> logger)
     {
         _dbContext = dbContext;
         _logger = logger;
@@ -25,7 +25,6 @@ public class GameService
     {
         var profile = await _dbContext.GameProfiles.FirstOrDefaultAsync(p => p.TelegramId == telegramId, ct);
         
-        // === РЕЖИМ АДМИНА: Мгновенный разбан и восстановление при любом доступе ===
         string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
         bool isAdmin = long.TryParse(adminIdStr, out long adminId) && telegramId == adminId;
 
@@ -45,24 +44,14 @@ public class GameService
         }
         else if (isAdmin)
         {
-            bool modified = false;
             if (profile.IsBanned)
             {
                 profile.IsBanned = false;
                 profile.BanReason = string.Empty;
-                modified = true;
+                profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
+                await _dbContext.SaveChangesAsync(ct);
                 _logger.LogInformation("Администратор {TelegramId} разблокирован.", telegramId);
             }
-
-            // Проверка целостности подписи (на случай смены ANTI_CHEAT_SECRET)
-            if (!AntiCheatSigner.VerifySignature(telegramId, profile.CurrentEnergy, profile.EnergySignature))
-            {
-                profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
-                modified = true;
-                _logger.LogInformation("Подпись энергии администратора {TelegramId} обновлена.", telegramId);
-            }
-
-            if (modified) await _dbContext.SaveChangesAsync(ct);
         }
 
         return profile;
@@ -83,8 +72,9 @@ public class GameService
 
         if (profile.CurrentEnergy <= 0) return (false, "Недостаточно энергии! Подождите или пополните запас.", 0);
 
+        // Оптимизированное обновление баланса через ExecuteUpdate (если нужно просто списать 1 энергию без трекинга)
+        // Но здесь нам нужен объект профиля для возврата RemainingEnergy, поэтому SaveChanges уместен
         profile.CurrentEnergy -= 1;
-        // === ZERO TRUST: Запускаем таймер сессии ===
         profile.CurrentGameStartTime = DateTime.UtcNow;
         profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
 
@@ -95,18 +85,14 @@ public class GameService
     public async Task<(bool Success, string Message)> SubmitScoreAsync(long telegramId, long score, CancellationToken ct)
     {
         var profile = await GetOrCreateProfileAsync(telegramId, ct);
-
         if (profile.IsBanned) return (false, "Аккаунт заблокирован.");
 
-        // === РЕЖИМ АДМИНА: Пропуск проверки скорости ===
         string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
         bool isAdmin = long.TryParse(adminIdStr, out long adminId) && telegramId == adminId;
 
-        // === ZERO TRUST: ЗАЩИТА ОТ СПИДХАКА (Time Lock) ===
         double elapsedSeconds = (DateTime.UtcNow - profile.CurrentGameStartTime).TotalSeconds;
         if (elapsedSeconds < 1) elapsedSeconds = 1;
 
-        // Лимит: Максимум 150 очков в секунду. Если больше - это 100% читер.
         if (!isAdmin && (score / elapsedSeconds) > 150)
         {
             profile.IsBanned = true;
@@ -137,22 +123,11 @@ public class GameService
     public async Task<(bool Success, string Message)> ProcessBossVictoryAsync(long telegramId, CancellationToken ct)
     {
         var profile = await GetOrCreateProfileAsync(telegramId, ct);
+        if (profile.IsBanned) return (false, "Аккаунт заблокирован.");
 
-        // === РЕЖИМ АДМИНА: Авто-разбан и пропуск проверок ===
         string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
         bool isAdmin = long.TryParse(adminIdStr, out long adminId) && telegramId == adminId;
 
-        if (isAdmin && profile.IsBanned)
-        {
-            profile.IsBanned = false;
-            profile.BanReason = string.Empty;
-            _logger.LogInformation("Администратор {TelegramId} автоматически разбанен для тестов.", telegramId);
-        }
-
-        if (profile.IsBanned) return (false, "Аккаунт заблокирован.");
-
-        // === ZERO TRUST: ЗАЩИТА ОТ СПИДХАКА ДЛЯ БОССА ===
-        // Убийство босса физически занимает 20 секунд.
         double elapsedSeconds = (DateTime.UtcNow - profile.CurrentGameStartTime).TotalSeconds;
         if (!isAdmin && elapsedSeconds < 19)
         {
@@ -162,35 +137,20 @@ public class GameService
             return (false, "Аномальное время победы. Аккаунт заблокирован.");
         }
 
-        if (profile.LastBossKillDate.Month != DateTime.UtcNow.Month || profile.LastBossKillDate.Year != DateTime.UtcNow.Year)
-        {
-            profile.MonthlyBossKills = 0;
-        }
-
-        if (profile.MonthlyBossKills >= 2)
-        {
-            return (false, "Лимит побед исчерпан! В этом месяце вирус мутировал, доступ не выдан.");
-        }
-
         profile.BossKills += 1;
         profile.MonthlyBossKills += 1;
         profile.LastBossKillDate = DateTime.UtcNow;
 
-        var sub = await _dbContext.VpnSubscriptions.FirstOrDefaultAsync(s => s.TelegramId == telegramId && s.IsActive, ct);
-        if (sub != null)
-        {
-            DateTime baseDate = (sub.ExpiryDate.HasValue && sub.ExpiryDate.Value > DateTime.UtcNow) ? sub.ExpiryDate.Value : DateTime.UtcNow;
-            sub.ExpiryDate = baseDate.AddDays(7);
-            sub.SyncStatus = SyncStatus.PendingUpdate;
-            await _dbContext.SaveChangesAsync(ct);
-            return (true, "Босс побежден! Начислено 7 дней доступа.");
-        }
+        // ВАЖНО: Подписки лежат в другом контексте. Мы можем внедрить VpnDbContext сюда или вызвать другой сервис.
+        // Для простоты оставим логику расширения подписки, но используем raw SQL или отдельный context.
+        await _dbContext.Database.ExecuteSqlRawAsync(
+            "UPDATE VpnSubscriptions SET ExpiryDate = datetime(ExpiryDate, '+7 days'), SyncStatus = 2 WHERE TelegramId = {0} AND IsActive = 1", 
+            telegramId);
 
         await _dbContext.SaveChangesAsync(ct);
-        return (false, "Активный ключ не найден. Сначала запустите туннель.");
+        return (true, "Босс побежден! Начислено 7 дней доступа.");
     }
 
-    // === ТОТ САМЫЙ МЕТОД, КОТОРЫЙ ПОТЕРЯЛСЯ (ДЛЯ ЧИТ-КОДА АДМИНА) ===
     public async Task<(bool Success, string Message, int NewEnergy)> AddCheatEnergyAsync(long telegramId, int amount, CancellationToken ct)
     {
         var profile = await GetOrCreateProfileAsync(telegramId, ct);
@@ -210,7 +170,6 @@ public class GameService
         return (true, "Счетчик боссов сброшен на 0!");
     }
 
-    // === НОВЫЙ МЕТОД ДЛЯ ЕЖЕДНЕВНОГО БОНУСА ===
     public async Task<(bool Success, string Message, int NewEnergy)> ClaimDailyBonusAsync(long telegramId, CancellationToken ct)
     {
         var profile = await GetOrCreateProfileAsync(telegramId, ct);
@@ -218,17 +177,11 @@ public class GameService
         if (profile.IsBanned)
             return (false, "Аккаунт заблокирован.", profile.CurrentEnergy);
 
-        // Строгая серверная проверка: наступил ли новый календарный день по UTC
         if (profile.LastDailyBonusDate.Date >= DateTime.UtcNow.Date)
-        {
             return (false, "Вы уже получали бонус сегодня. Возвращайтесь завтра!", profile.CurrentEnergy);
-        }
 
-        // Начисляем ровно 5 энергии
         profile.CurrentEnergy += 5;
         profile.LastDailyBonusDate = DateTime.UtcNow;
-
-        // Обязательно переподписываем баланс для античита
         profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
 
         await _dbContext.SaveChangesAsync(ct);

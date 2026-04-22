@@ -1,4 +1,4 @@
-﻿using Telegram.Bot;
+using Telegram.Bot;
 using Telegram.Bot.Polling;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using KoFFBot.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Linq;
+using Serilog;
 
 namespace KoFFBot.Services;
 
@@ -22,54 +23,43 @@ public class TelegramBotWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        BotLogger.Log("WORKER", "🚀 Демон Telegram запускается...");
+        Log.Information("🚀 Демон Telegram запускается...");
 
-        // Запускаем слушателя сообщений в фоне
         _ = StartPollingAsync(stoppingToken);
         _ = StartEnergyRegenAsync(stoppingToken);
 
-        // Запускаем умный мониторинг сроков подписок
         await StartExpiryNotifierAsync(stoppingToken);
     }
 
-    // Добавь этот метод внутрь класса TelegramBotWorker
     private async Task StartEnergyRegenAsync(CancellationToken stoppingToken)
     {
-        BotLogger.Log("GAME-WORKER", "Генератор энергии запущен (восстановление каждые 30 минут).");
+        Log.Information("Генератор энергии запущен (восстановление каждые 30 минут через PeriodicTimer).");
 
-        while (!stoppingToken.IsCancellationRequested)
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(30));
+
+        while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             try
             {
-                await Task.Delay(TimeSpan.FromMinutes(30), stoppingToken); // Ждем 30 минут
-
                 using var scope = _serviceProvider.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<BotDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
 
-                // Находим всех, у кого энергия меньше максимума (5) и кто не в бане
-                var profilesToUpdate = await db.GameProfiles
+                // Оптимизация: Массовое обновление через ExecuteUpdateAsync для снижения нагрузки на память
+                int updated = await db.GameProfiles
                     .Where(p => p.CurrentEnergy < 5 && !p.IsBanned)
-                    .ToListAsync(stoppingToken);
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(p => p.CurrentEnergy, p => p.CurrentEnergy + 1)
+                        .SetProperty(p => p.LastEnergyUpdate, DateTime.UtcNow), 
+                        stoppingToken);
 
-                int updatedCount = 0;
-                foreach (var profile in profilesToUpdate)
+                if (updated > 0)
                 {
-                    profile.CurrentEnergy += 1;
-                    profile.LastEnergyUpdate = DateTime.UtcNow;
-                    // Обновляем античит-подпись!
-                    profile.EnergySignature = KoFFBot.Security.AntiCheatSigner.GenerateSignature(profile.TelegramId, profile.CurrentEnergy);
-                    updatedCount++;
-                }
-
-                if (updatedCount > 0)
-                {
-                    await db.SaveChangesAsync(stoppingToken);
-                    BotLogger.Log("GAME-WORKER", $"Восстановлена энергия для {updatedCount} игроков.");
+                    Log.Information("Восстановлена энергия для {UpdatedCount} игроков.", updated);
                 }
             }
             catch (Exception ex)
             {
-                BotLogger.Log("GAME-WORKER", $"Ошибка восстановления энергии: {ex.Message}");
+                Log.Error(ex, "Ошибка восстановления энергии");
             }
         }
     }
@@ -83,11 +73,8 @@ public class TelegramBotWorker : BackgroundService
             var updateHandler = scope.ServiceProvider.GetRequiredService<UpdateHandler>();
 
             var me = await botClient.GetMe(cancellationToken: stoppingToken);
-            BotLogger.Log("WORKER", $"✅ Бот успешно авторизован! Имя: @{me.Username}");
+            Log.Information("✅ Бот успешно авторизован! Имя: @{Username}", me.Username);
 
-            // ИСПРАВЛЕНИЕ АРХИТЕКТУРЫ: 
-            // 1. DropPendingUpdates = false (Чтобы не терять нажатия кнопок при перезапусках!)
-            // 2. AllowedUpdates = Array.Empty (Разрешаем принимать ВСЕ типы апдейтов)
             var receiverOptions = new ReceiverOptions
             {
                 DropPendingUpdates = false,
@@ -98,20 +85,22 @@ public class TelegramBotWorker : BackgroundService
         }
         catch (Exception ex)
         {
-            BotLogger.Log("WORKER", "❌ КРИТИЧЕСКИЙ СБОЙ POLLING!", ex);
+            Log.Fatal(ex, "❌ КРИТИЧЕСКИЙ СБОЙ POLLING!");
         }
     }
 
     private async Task StartExpiryNotifierAsync(CancellationToken stoppingToken)
     {
-        BotLogger.Log("NOTIFIER", "Сканер сроков подписок активирован (проверка каждый час).");
+        Log.Information("Сканер сроков подписок активирован (проверка каждый час через PeriodicTimer).");
 
-        while (!stoppingToken.IsCancellationRequested)
+        using var timer = new PeriodicTimer(TimeSpan.FromHours(1));
+
+        while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             try
             {
                 using var scope = _serviceProvider.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<BotDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<VpnDbContext>();
                 var bot = scope.ServiceProvider.GetRequiredService<ITelegramBotClient>();
 
                 var now = DateTime.UtcNow;
@@ -125,20 +114,18 @@ public class TelegramBotWorker : BackgroundService
                     var timeLeft = sub.ExpiryDate!.Value - now;
                     if (timeLeft.TotalHours > 71 && timeLeft.TotalHours <= 72)
                     {
-                        await SendNotice(bot, sub.TelegramId, "⚠️ *Внимание!*\nДо окончания подписки осталось *3 дня*.\nЗайдите в приложение, чтобы продлить доступ!", stoppingToken);
+                        await SendNotice(bot, sub.TelegramId, "⚠️ *Внимание!*\nДо окончания подписки осталось *3 дня*.", stoppingToken);
                     }
                     else if (timeLeft.TotalHours > 23 && timeLeft.TotalHours <= 24)
                     {
-                        await SendNotice(bot, sub.TelegramId, "🔴 *СРОЧНО!*\nВаша подписка истекает *завтра*.\nПродлите тариф сейчас, чтобы остаться на связи!", stoppingToken);
+                        await SendNotice(bot, sub.TelegramId, "🔴 *СРОЧНО!*\nВаша подписка истекает *завтра*.", stoppingToken);
                     }
                 }
             }
             catch (Exception ex)
             {
-                BotLogger.Log("NOTIFIER", "Ошибка сканирования сроков", ex);
+                Log.Error(ex, "Ошибка сканирования сроков");
             }
-
-            await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
         }
     }
 
