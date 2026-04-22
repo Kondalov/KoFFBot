@@ -24,6 +24,11 @@ public class GameService
     public async Task<GameProfile> GetOrCreateProfileAsync(long telegramId, CancellationToken ct)
     {
         var profile = await _dbContext.GameProfiles.FirstOrDefaultAsync(p => p.TelegramId == telegramId, ct);
+        
+        // === РЕЖИМ АДМИНА: Мгновенный разбан и восстановление при любом доступе ===
+        string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
+        bool isAdmin = long.TryParse(adminIdStr, out long adminId) && telegramId == adminId;
+
         if (profile == null)
         {
             profile = new GameProfile
@@ -32,12 +37,34 @@ public class GameService
                 CurrentEnergy = 50,
                 LastEnergyUpdate = DateTime.UtcNow,
                 BossKills = 0,
-                LastDailyBonusDate = DateTime.MinValue // Для нового ежедневного бонуса
+                LastDailyBonusDate = DateTime.MinValue
             };
             profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
             _dbContext.GameProfiles.Add(profile);
             await _dbContext.SaveChangesAsync(ct);
         }
+        else if (isAdmin)
+        {
+            bool modified = false;
+            if (profile.IsBanned)
+            {
+                profile.IsBanned = false;
+                profile.BanReason = string.Empty;
+                modified = true;
+                _logger.LogInformation("Администратор {TelegramId} разблокирован.", telegramId);
+            }
+
+            // Проверка целостности подписи (на случай смены ANTI_CHEAT_SECRET)
+            if (!AntiCheatSigner.VerifySignature(telegramId, profile.CurrentEnergy, profile.EnergySignature))
+            {
+                profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
+                modified = true;
+                _logger.LogInformation("Подпись энергии администратора {TelegramId} обновлена.", telegramId);
+            }
+
+            if (modified) await _dbContext.SaveChangesAsync(ct);
+        }
+
         return profile;
     }
 
@@ -68,14 +95,19 @@ public class GameService
     public async Task<(bool Success, string Message)> SubmitScoreAsync(long telegramId, long score, CancellationToken ct)
     {
         var profile = await GetOrCreateProfileAsync(telegramId, ct);
+
         if (profile.IsBanned) return (false, "Аккаунт заблокирован.");
+
+        // === РЕЖИМ АДМИНА: Пропуск проверки скорости ===
+        string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
+        bool isAdmin = long.TryParse(adminIdStr, out long adminId) && telegramId == adminId;
 
         // === ZERO TRUST: ЗАЩИТА ОТ СПИДХАКА (Time Lock) ===
         double elapsedSeconds = (DateTime.UtcNow - profile.CurrentGameStartTime).TotalSeconds;
         if (elapsedSeconds < 1) elapsedSeconds = 1;
 
         // Лимит: Максимум 150 очков в секунду. Если больше - это 100% читер.
-        if ((score / elapsedSeconds) > 150)
+        if (!isAdmin && (score / elapsedSeconds) > 150)
         {
             profile.IsBanned = true;
             profile.BanReason = "SpeedHack detected (TimeLock Limit Exceeded).";
@@ -105,12 +137,24 @@ public class GameService
     public async Task<(bool Success, string Message)> ProcessBossVictoryAsync(long telegramId, CancellationToken ct)
     {
         var profile = await GetOrCreateProfileAsync(telegramId, ct);
+
+        // === РЕЖИМ АДМИНА: Авто-разбан и пропуск проверок ===
+        string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
+        bool isAdmin = long.TryParse(adminIdStr, out long adminId) && telegramId == adminId;
+
+        if (isAdmin && profile.IsBanned)
+        {
+            profile.IsBanned = false;
+            profile.BanReason = string.Empty;
+            _logger.LogInformation("Администратор {TelegramId} автоматически разбанен для тестов.", telegramId);
+        }
+
         if (profile.IsBanned) return (false, "Аккаунт заблокирован.");
 
         // === ZERO TRUST: ЗАЩИТА ОТ СПИДХАКА ДЛЯ БОССА ===
         // Убийство босса физически занимает 20 секунд.
         double elapsedSeconds = (DateTime.UtcNow - profile.CurrentGameStartTime).TotalSeconds;
-        if (elapsedSeconds < 19)
+        if (!isAdmin && elapsedSeconds < 19)
         {
             profile.IsBanned = true;
             profile.BanReason = "Boss SpeedHack (TimeLock Violation).";

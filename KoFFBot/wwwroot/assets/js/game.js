@@ -395,10 +395,22 @@ async function showGameOver(wonBoss) {
         document.getElementById('goTitle').style.color = "var(--success)";
         window.showToast("⏳ ИЗВЛЕЧЕНИЕ ДОСТУПА...");
         try {
-            await fetch('/api/game/boss_victory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Signature: window.tg.initData }) });
-            window.bossKills = (window.bossKills || 0) + 1;
-            window.tg.showAlert("🎉 ВИРУС УНИЧТОЖЕН! Вам начислено 7 дней элитного доступа!");
-        } catch (e) { }
+            const response = await fetch('/api/game/boss_victory', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({ TelegramId: window.userId, Signature: window.tg.initData }) 
+            });
+            
+            if (response.ok) {
+                window.bossKills = (window.bossKills || 0) + 1;
+                window.tg.showAlert("🎉 ВИРУС УНИЧТОЖЕН! Вам начислено 7 дней элитного доступа!");
+            } else {
+                const errText = await response.text();
+                window.tg.showAlert("❌ ОШИБКА: " + errText);
+            }
+        } catch (e) {
+            window.tg.showAlert("❌ Ошибка связи с сервером.");
+        }
     } else {
         document.getElementById('goTitle').innerText = "ВЗЛОМ ПРЕРВАН";
         document.getElementById('goTitle').style.color = "var(--danger)";

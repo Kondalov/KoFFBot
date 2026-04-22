@@ -141,13 +141,20 @@ function formatBytesToHTML(bytes) {
 function loadProfile(isSilent = false) {
     if (window.userId === 0 && !isSilent) { document.getElementById('loader').style.animation = 'none'; document.getElementById('loader').innerHTML = "⚠️ Откройте через Telegram."; return; }
 
-    fetch(`/api/game/profile?tgId=${window.userId}`).then(r => r.json()).then(gData => {
-        if (!gData.isBanned) {
-            document.getElementById('energyValue').innerText = gData.energy || 0;
-            window.bossKills = gData.bossKills || 0;
-            window.monthlyBossKills = gData.monthlyBossKills || 0;
-            window.canClaimDaily = gData.canClaimDaily === true;
+    fetch(`/api/game/profile?tgId=${window.userId}`).then(async r => {
+        if (!r.ok) {
+            const err = await r.text();
+            if (err.includes("заблокирован") && !isSilent) {
+                window.tg.showAlert("🚫 ВНИМАНИЕ: " + err);
+            }
+            throw new Error(err);
         }
+        return r.json();
+    }).then(gData => {
+        document.getElementById('energyValue').innerText = gData.energy || 0;
+        window.bossKills = gData.bossKills || 0;
+        window.monthlyBossKills = gData.monthlyBossKills || 0;
+        window.canClaimDaily = gData.canClaimDaily === true;
     }).catch(() => { });
 
     fetch(`/api/webapp/profile?tgId=${window.userId}`).then(async r => {
