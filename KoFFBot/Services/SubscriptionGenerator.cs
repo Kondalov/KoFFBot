@@ -24,6 +24,12 @@ public class SubscriptionGenerator
     {
         try
         {
+            var user = await _dbContext.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == telegramId, ct);
+            if (user != null && user.HasUsedTrial)
+            {
+                return (false, null, null, "⛔ Вы уже использовали свой пробный период. Пожалуйста, приобретите подписку в магазине.");
+            }
+
             var reserveSub = await _dbContext.VpnSubscriptions
                 .FirstOrDefaultAsync(s => s.TelegramId == 0 && s.IsActive, ct);
 
@@ -38,6 +44,8 @@ public class SubscriptionGenerator
             reserveSub.ExpiryDate = DateTime.UtcNow.AddDays(3);
             reserveSub.SyncStatus = SyncStatus.PendingUpdate;
             reserveSub.LastModifiedAt = DateTime.UtcNow;
+
+            if (user != null) user.HasUsedTrial = true;
 
             await _dbContext.SaveChangesAsync(ct);
 

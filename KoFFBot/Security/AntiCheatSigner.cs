@@ -26,7 +26,11 @@ public static class AntiCheatSigner
     // === ZERO TRUST: ПРОВЕРКА ПОДЛИННОСТИ ОТ TELEGRAM ===
     public static bool ValidateTelegramInitData(string initData, string botToken)
     {
-        if (string.IsNullOrWhiteSpace(initData) || string.IsNullOrWhiteSpace(botToken)) return false;
+        if (string.IsNullOrWhiteSpace(initData) || string.IsNullOrWhiteSpace(botToken)) 
+        {
+            Serilog.Log.Warning("[AUTH] Missing initData or botToken.");
+            return false;
+        }
         try
         {
             var parsed = initData.Split('&')
@@ -34,7 +38,11 @@ public static class AntiCheatSigner
                 .Where(p => p.Length == 2)
                 .ToDictionary(p => p[0], p => Uri.UnescapeDataString(p[1]));
 
-            if (!parsed.TryGetValue("hash", out string? hash)) return false;
+            if (!parsed.TryGetValue("hash", out string? hash)) 
+            {
+                Serilog.Log.Warning("[AUTH] Hash not found in initData.");
+                return false;
+            }
 
             var dataCheckString = string.Join("\n", parsed
                 .Where(kvp => kvp.Key != "hash")
@@ -48,8 +56,14 @@ public static class AntiCheatSigner
             byte[] computedHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(dataCheckString));
             string computedHashHex = Convert.ToHexString(computedHash).ToLower();
 
-            return computedHashHex == hash;
+            bool isValid = computedHashHex == hash;
+            if (!isValid) Serilog.Log.Warning("[AUTH] Signature mismatch. Computed: {Computed}, Received: {Received}", computedHashHex, hash);
+            return isValid;
         }
-        catch { return false; }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "[AUTH] Critical error during validation.");
+            return false;
+        }
     }
 }

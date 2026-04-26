@@ -19,6 +19,9 @@ public sealed record TelegramUser
     public string LanguageCode { get; set; } = "ru";
     public int ReferralCount { get; set; }
     public long BonusBalance { get; set; }
+
+    // === ЗАЩИТА ОТ ХАЛЯВЩИКОВ (АПРЕЛЬ 2026) ===
+    public bool HasUsedTrial { get; set; }
 }
 
 public sealed record Referral
@@ -84,6 +87,11 @@ public sealed record GameProfile
 
     // === Защищенный ежедневный бонус ===
     public DateTime LastDailyBonusDate { get; set; } = DateTime.MinValue;
+
+    // === АВТОМАТИЗАЦИЯ БОНУСОВ (АПРЕЛЬ 2026) ===
+    public int ClaimedReferralMilestone { get; set; } = 0; // Сохраняем последний полученный рубеж (1, 3, 5, 10)
+    public DateTime LastHappyHourDate { get; set; } = DateTime.MinValue;
+    public DateTime LastRetentionDate { get; set; } = DateTime.MinValue;
 
     // === НОВОЕ (ZERO TRUST): Таймер сессии для защиты от SpeedHack/Replay ===
     public DateTime CurrentGameStartTime { get; set; } = DateTime.MinValue;

@@ -200,8 +200,9 @@ function loadProfile(isSilent = false) {
                     } else { dText.innerText = 'Истек'; dText.style.color = "var(--danger)"; tBar.style.width = '0%'; tBar.className = "progress-fill fill-danger"; }
                 } catch (e) { document.getElementById('daysLeft').innerText = "∞"; }
             } else { document.getElementById('daysLeft').innerText = "∞"; document.getElementById('expiryDateText').innerText = "Бессрочно"; document.getElementById('timeBar').style.width = '100%'; }
-
-            window.vpnLinkToCopy = `http://${data.serverIp || '0.0.0.0'}:8080/${data.uuid || ''}`; document.getElementById('keyLink').innerText = window.vpnLinkToCopy;
+// Возвращаем старый, рабочий формат ссылки на порт 8080 по просьбе пользователя
+window.vpnLinkToCopy = `http://${data.serverIp || window.location.hostname}:8080/${data.uuid || ''}`;
+document.getElementById('keyLinkText').innerText = window.vpnLinkToCopy;
         } else { document.getElementById('state-has-sub').style.display = 'none'; document.getElementById('state-no-sub').style.display = 'block'; }
 
         if (!isSilent) { checkUnread(); startPolling(); }
@@ -364,23 +365,39 @@ window.claimRetentionBonus = function () {
         return;
     }
 
-    // === ОСТАЛЬНЫЕ БОНУСЫ (через инбокс админу) ===
-    let msgText = `🎁 СЕКРЕТНЫЙ СУНДУК:\n${window.currentChestReason}\nПрошу зачислить бонусную энергию.`;
-
-    const today = new Date().toDateString();
-    if (window.currentChestReason.includes("Счастливые")) localStorage.setItem('koff_happy_hour_chest', today);
-    if (window.currentChestReason.includes("Реферальный")) {
+    // === АВТОМАТИЗИРОВАННОЕ НАЧИСЛЕНИЕ ОСТАЛЬНЫХ БОНУСОВ (АПРЕЛЬ 2026) ===
+    let bonusType = "UNKNOWN";
+    if (window.currentChestReason.includes("Счастливые")) bonusType = "HAPPY_HOUR";
+    else if (window.currentChestReason.includes("удержание")) bonusType = "RETENTION";
+    else if (window.currentChestReason.includes("Реферальный")) {
         let pending = localStorage.getItem('koff_ref_chest_pending');
-        if (pending) localStorage.setItem('koff_ref_chest', pending);
+        if (pending) bonusType = "REF_" + pending;
     }
 
-    fetch('/api/webapp/send_message', {
+    fetch('/api/game/claim_bonus', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ TelegramId: window.userId, Text: msgText })
-    }).then(() => {
-        window.showToast("🎁 Сундук открыт! Заявка отправлена в Инбокс.");
-    }).catch(() => window.showToast("🎁 Сундук открыт, но нет связи с сервером."));
+        body: JSON.stringify({ TelegramId: window.userId, BonusType: bonusType, Signature: window.tg.initData })
+    })
+        .then(async r => {
+            if (!r.ok) {
+                const err = await r.text();
+                window.tg.showAlert("❌ Ошибка бонуса: " + err);
+            } else {
+                const res = await r.json();
+                document.getElementById('energyValue').innerText = res.newEnergy;
+                
+                // Сохраняем состояние в localStorage для визуала (сервер всё равно проверит еще раз)
+                const today = new Date().toDateString();
+                if (bonusType === "HAPPY_HOUR") localStorage.setItem('koff_happy_hour_chest', today);
+                if (bonusType.startsWith("REF_")) {
+                    let milestone = bonusType.replace("REF_", "");
+                    localStorage.setItem('koff_ref_chest', milestone);
+                }
+                
+                window.showToast("🎁 " + (res.Message || "Бонус начислен!"));
+            }
+        }).catch(() => window.showToast("❌ Ошибка связи с сервером."));
 };
 
 // === ИНТЕЛЛЕКТ ГЕКОНА (ВКЛАДКА РЕЙТИНГ) ===

@@ -27,7 +27,7 @@ public static class GameEndpoints
         });
 
         app.MapPost("/api/game/daily_bonus", async (GameActionRequest req, GameService gameService) => {
-            string token = Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "";
+            string token = (Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "").Trim('"', '\'', ' ');
             if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
             var result = await gameService.ClaimDailyBonusAsync(req.TelegramId, CancellationToken.None);
             if (!result.Success) return Results.BadRequest(result.Message);
@@ -35,7 +35,7 @@ public static class GameEndpoints
         });
 
         app.MapPost("/api/game/start", async (GameActionRequest req, GameService gameService) => {
-            string token = Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "";
+            string token = (Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "").Trim('"', '\'', ' ');
             if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
             var result = await gameService.TryStartGameAsync(req.TelegramId, CancellationToken.None);
             if (!result.Success) return Results.BadRequest(result.Message);
@@ -43,7 +43,7 @@ public static class GameEndpoints
         });
 
         app.MapPost("/api/game/submit", async (GameScoreRequest req, GameService gameService) => {
-            string token = Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "";
+            string token = (Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "").Trim('"', '\'', ' ');
             if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
             var result = await gameService.SubmitScoreAsync(req.TelegramId, req.Score, CancellationToken.None);
             if (!result.Success) return Results.BadRequest(result.Message);
@@ -51,7 +51,7 @@ public static class GameEndpoints
         });
 
         app.MapPost("/api/game/boss_victory", async (GameActionRequest req, GameService gameService) => {
-            string token = Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "";
+            string token = (Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "").Trim('"', '\'', ' ');
             if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
             var result = await gameService.ProcessBossVictoryAsync(req.TelegramId, CancellationToken.None);
             if (!result.Success) return Results.BadRequest(result.Message);
@@ -59,17 +59,26 @@ public static class GameEndpoints
         });
 
         app.MapPost("/api/game/cheat", async (GameActionRequest req, GameService gameService) => {
-            string token = Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "";
+            string token = (Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "").Trim('"', '\'', ' ');
             if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
             var result = await gameService.AddCheatEnergyAsync(req.TelegramId, 50, CancellationToken.None);
             return Results.Ok(new { Message = result.Message, NewEnergy = result.NewEnergy });
         });
 
         app.MapPost("/api/game/reset_boss", async (GameActionRequest req, GameService gameService) => {
-            string token = Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "";
+            string token = (Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "").Trim('"', '\'', ' ');
             if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
             var result = await gameService.ResetBossStatsAsync(req.TelegramId, CancellationToken.None);
             return Results.Ok(new { Message = result.Message });
+        });
+
+        // НОВЫЙ ЭНДПОИНТ: Автоматическое начисление бонусов (Рефералы, Удержание, Счастливые часы)
+        app.MapPost("/api/game/claim_bonus", async (ClaimBonusRequest req, GameService gameService) => {
+            string token = (Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "").Trim('"', '\'', ' ');
+            if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
+            var result = await gameService.ClaimAdvancedBonusAsync(req.TelegramId, req.BonusType, CancellationToken.None);
+            if (!result.Success) return Results.BadRequest(result.Message);
+            return Results.Ok(new { Message = result.Message, NewEnergy = result.NewEnergy });
         });
 
         app.MapGet("/api/game/leaderboard", async (GameService gameService) => {

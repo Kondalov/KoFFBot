@@ -47,17 +47,22 @@ function startGameUi() {
     try {
         fetch('/api/game/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ TelegramId: window.userId, Signature: window.tg.initData }) })
             .then(async r => {
-                window.gameLogger("startGameUi_FETCH_RETURNED_Status_" + r.status);
-                if (!r.ok) { const err = await r.text(); window.tg.showAlert(err); return; }
-                const res = await r.json();
+                const rText = await r.text();
+                window.gameLogger("startGameUi_FETCH_RETURNED_Status_" + r.status + "_Body_" + rText.substring(0,20));
+                if (!r.ok) { 
+                    const displayErr = rText || "Неизвестная ошибка сервера";
+                    window.tg.showAlert(displayErr); 
+                    return; 
+                }
+                const res = JSON.parse(rText);
                 document.getElementById('energyValue').innerText = res.remainingEnergy;
                 document.getElementById('gameOverlay').style.display = 'flex';
                 document.getElementById('gameOverOverlay').style.display = 'none';
                 score = 0; level = 1;
                 showCountdownAndStart();
             }).catch((e) => {
-                window.gameLogger("startGameUi_FETCH_ERROR_" + e.message);
-                window.tg.showAlert("Ошибка связи с сервером.");
+                window.gameLogger("startGameUi_FETCH_ERROR_" + e.name + "_" + e.message);
+                window.tg.showAlert("Ошибка связи: " + e.message);
             });
     } catch (err) {
         window.gameLogger("startGameUi_CRITICAL_ERROR_" + err.message);

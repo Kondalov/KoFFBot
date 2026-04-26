@@ -85,7 +85,7 @@ public static class Program
             app.Use(async (context, next) =>
             {
                 var path = context.Request.Path.Value?.ToLower() ?? "";
-                if (path.StartsWith("/api/webapp") || path.StartsWith("/api/game") || path.EndsWith(".html") || path.EndsWith(".js") || path.EndsWith(".css") || path == "/")
+                if (path.StartsWith("/api/webapp") || path.StartsWith("/api/game") || path.StartsWith("/sub/") || path.EndsWith(".html") || path.EndsWith(".js") || path.EndsWith(".css") || path == "/")
                 {
                     await next(context);
                     return;

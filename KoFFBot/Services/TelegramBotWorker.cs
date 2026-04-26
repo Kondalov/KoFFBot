@@ -43,18 +43,24 @@ public class TelegramBotWorker : BackgroundService
             {
                 using var scope = _serviceProvider.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
+                var gameService = scope.ServiceProvider.GetRequiredService<GameService>();
 
-                // Оптимизация: Массовое обновление через ExecuteUpdateAsync для снижения нагрузки на память
-                int updated = await db.GameProfiles
+                // Находим всех, кому нужно восстановить энергию (лимит 5, не забанен)
+                var profilesToUpdate = await db.GameProfiles
                     .Where(p => p.CurrentEnergy < 5 && !p.IsBanned)
-                    .ExecuteUpdateAsync(setters => setters
-                        .SetProperty(p => p.CurrentEnergy, p => p.CurrentEnergy + 1)
-                        .SetProperty(p => p.LastEnergyUpdate, DateTime.UtcNow), 
-                        stoppingToken);
+                    .ToListAsync(stoppingToken);
 
-                if (updated > 0)
+                int updatedCount = 0;
+                foreach (var profile in profilesToUpdate)
                 {
-                    Log.Information("Восстановлена энергия для {UpdatedCount} игроков.", updated);
+                    // Используем GameService для безопасного обновления с пересчетом сигнатуры
+                    await gameService.AddEnergyAsync(profile.TelegramId, 1, stoppingToken);
+                    updatedCount++;
+                }
+
+                if (updatedCount > 0)
+                {
+                    Log.Information("Восстановлена энергия для {UpdatedCount} игроков.", updatedCount);
                 }
             }
             catch (Exception ex)

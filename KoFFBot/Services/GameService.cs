@@ -13,18 +13,20 @@ namespace KoFFBot.Services;
 public class GameService
 {
     private readonly GameDbContext _dbContext;
+    private readonly VpnDbContext _vpnDbContext;
     private readonly ILogger<GameService> _logger;
 
-    public GameService(GameDbContext dbContext, ILogger<GameService> logger)
+    public GameService(GameDbContext dbContext, VpnDbContext vpnDbContext, ILogger<GameService> logger)
     {
         _dbContext = dbContext;
+        _vpnDbContext = vpnDbContext;
         _logger = logger;
     }
 
     public async Task<GameProfile> GetOrCreateProfileAsync(long telegramId, CancellationToken ct)
     {
         var profile = await _dbContext.GameProfiles.FirstOrDefaultAsync(p => p.TelegramId == telegramId, ct);
-        
+
         string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
         bool isAdmin = long.TryParse(adminIdStr, out long adminId) && telegramId == adminId;
 
@@ -42,9 +44,19 @@ public class GameService
             _dbContext.GameProfiles.Add(profile);
             await _dbContext.SaveChangesAsync(ct);
         }
-        else if (isAdmin)
+        else
         {
-            if (profile.IsBanned)
+            // === AUTO-REPAIR: Исправляем последствия бага с рассинхроном сигнатуры ===
+            if (profile.IsBanned && profile.BanReason == "Нарушение целостности данных (Античит).")
+            {
+                profile.IsBanned = false;
+                profile.BanReason = string.Empty;
+                profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
+                await _dbContext.SaveChangesAsync(ct);
+                _logger.LogInformation("Профиль {TelegramId} успешно восстановлен после сбоя античита.", telegramId);
+            }
+
+            if (isAdmin && profile.IsBanned)
             {
                 profile.IsBanned = false;
                 profile.BanReason = string.Empty;
@@ -55,6 +67,15 @@ public class GameService
         }
 
         return profile;
+    }
+
+    public async Task<(bool Success, string Message, int NewEnergy)> AddEnergyAsync(long telegramId, int amount, CancellationToken ct)
+    {
+        var profile = await GetOrCreateProfileAsync(telegramId, ct);
+        profile.CurrentEnergy += amount;
+        profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
+        await _dbContext.SaveChangesAsync(ct);
+        return (true, $"Начислено +{amount} энергии.", profile.CurrentEnergy);
     }
 
     public async Task<(bool Success, string Message, int RemainingEnergy)> TryStartGameAsync(long telegramId, CancellationToken ct)
@@ -72,8 +93,6 @@ public class GameService
 
         if (profile.CurrentEnergy <= 0) return (false, "Недостаточно энергии! Подождите или пополните запас.", 0);
 
-        // Оптимизированное обновление баланса через ExecuteUpdate (если нужно просто списать 1 энергию без трекинга)
-        // Но здесь нам нужен объект профиля для возврата RemainingEnergy, поэтому SaveChanges уместен
         profile.CurrentEnergy -= 1;
         profile.CurrentGameStartTime = DateTime.UtcNow;
         profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
@@ -141,12 +160,45 @@ public class GameService
         profile.MonthlyBossKills += 1;
         profile.LastBossKillDate = DateTime.UtcNow;
 
-        // ВАЖНО: Подписки лежат в другом контексте. Мы можем внедрить VpnDbContext сюда или вызвать другой сервис.
-        // Для простоты оставим логику расширения подписки, но используем raw SQL или отдельный context.
-        await _dbContext.Database.ExecuteSqlRawAsync(
-            "UPDATE VpnSubscriptions SET ExpiryDate = datetime(ExpiryDate, '+7 days'), SyncStatus = 2 WHERE TelegramId = {0} AND IsActive = 1", 
-            telegramId);
+        // ИСПРАВЛЕНИЕ: Используем VpnDbContext для надежного начисления дней (вместо ненадежного raw SQL)
+        var vpnSub = await _vpnDbContext.VpnSubscriptions
+            .FirstOrDefaultAsync(s => s.TelegramId == telegramId && s.IsActive, ct);
 
+        if (vpnSub != null)
+        {
+            DateTime baseDate = (vpnSub.ExpiryDate.HasValue && vpnSub.ExpiryDate.Value > DateTime.UtcNow)
+                ? vpnSub.ExpiryDate.Value
+                : DateTime.UtcNow;
+
+            await _vpnDbContext.VpnSubscriptions
+                .Where(s => s.Uuid == vpnSub.Uuid)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(s => s.ExpiryDate, baseDate.AddDays(7))
+                    .SetProperty(s => s.SyncStatus, SyncStatus.PendingUpdate)
+                    .SetProperty(s => s.LastModifiedAt, DateTime.UtcNow), ct);
+        }
+        else
+        {
+            // Если активной подписки нет - создаем новую "призовую"
+            var template = await _vpnDbContext.ServerTemplates.FirstOrDefaultAsync(ct);
+            if (template != null)
+            {
+                _vpnDbContext.VpnSubscriptions.Add(new VpnSubscription
+                {
+                    Uuid = Guid.NewGuid().ToString(),
+                    TelegramId = telegramId,
+                    Email = $"boss_win_{telegramId}",
+                    ServerIp = template.ServerIp,
+                    TrafficLimitBytes = 50L * 1024 * 1024 * 1024, // 50 GB
+                    IsActive = true,
+                    ExpiryDate = DateTime.UtcNow.AddDays(7),
+                    SyncStatus = SyncStatus.PendingAdd,
+                    LastModifiedAt = DateTime.UtcNow
+                });
+            }
+        }
+
+        await _vpnDbContext.SaveChangesAsync(ct);
         await _dbContext.SaveChangesAsync(ct);
         return (true, "Босс побежден! Начислено 7 дней доступа.");
     }
@@ -188,6 +240,65 @@ public class GameService
         return (true, "Ежедневный бонус +5 ⚡ успешно начислен!", profile.CurrentEnergy);
     }
 
+    public async Task<(bool Success, string Message, int NewEnergy)> ClaimAdvancedBonusAsync(long telegramId, string bonusType, CancellationToken ct)
+    {
+        var profile = await GetOrCreateProfileAsync(telegramId, ct);
+        if (profile.IsBanned) return (false, "Аккаунт заблокирован.", profile.CurrentEnergy);
+
+        int reward = 0;
+        string message = "";
+
+        if (bonusType.StartsWith("REF_"))
+        {
+            // Рубежи: 1, 3, 5, 10 друзей -> +20 энергии
+            if (!int.TryParse(bonusType.Replace("REF_", ""), out int milestone))
+                return (false, "Неверный тип бонуса.", profile.CurrentEnergy);
+
+            var user = await _dbContext.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == telegramId, ct);
+            if (user == null || user.ReferralCount < milestone)
+                return (false, "Условие рубежа не выполнено.", profile.CurrentEnergy);
+
+            if (profile.ClaimedReferralMilestone >= milestone)
+                return (false, "Этот бонус уже получен.", profile.CurrentEnergy);
+
+            reward = 20;
+            profile.ClaimedReferralMilestone = milestone;
+            message = $"Бонус за {milestone} друзей (+{reward} ⚡) начислен!";
+        }
+        else if (bonusType == "HAPPY_HOUR")
+        {
+            var now = DateTime.UtcNow;
+            if (!((now.DayOfWeek == DayOfWeek.Tuesday || now.DayOfWeek == DayOfWeek.Friday) && (now.Hour >= 18 && now.Hour < 20)))
+                return (false, "Счастливые часы сейчас не активны.", profile.CurrentEnergy);
+
+            if (profile.LastHappyHourDate.Date == now.Date)
+                return (false, "Вы уже получили бонус счастливого часа сегодня.", profile.CurrentEnergy);
+
+            reward = 5;
+            profile.LastHappyHourDate = now;
+            message = "Бонус счастливого часа (+5 ⚡) начислен!";
+        }
+        else if (bonusType == "RETENTION")
+        {
+            if (profile.LastRetentionDate.Date == DateTime.UtcNow.Date)
+                return (false, "Вы уже получили бонус за удержание сегодня.", profile.CurrentEnergy);
+
+            reward = 5;
+            profile.LastRetentionDate = DateTime.UtcNow;
+            message = "Бонус за лояльность (+5 ⚡) начислен!";
+        }
+        else
+        {
+            return (false, "Неизвестный тип бонуса.", profile.CurrentEnergy);
+        }
+
+        profile.CurrentEnergy += reward;
+        profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
+        await _dbContext.SaveChangesAsync(ct);
+
+        return (true, message, profile.CurrentEnergy);
+    }
+
     public async Task<object> GetLeaderboardAsync(CancellationToken ct)
     {
         var topRecords = await _dbContext.LeaderboardRecords
@@ -205,3 +316,4 @@ public class GameService
         return new { TopPlayers = topRecords };
     }
 }
+

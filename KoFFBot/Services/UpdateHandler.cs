@@ -7,22 +7,25 @@ using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
-using System.Collections.Concurrent;
+using Serilog;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
-using Serilog;
+using System.Collections.Concurrent;
 
 namespace KoFFBot.Services;
 
 public class UpdateHandler : IUpdateHandler
 {
+    private readonly IServiceProvider _serviceProvider;
     private readonly IServiceScopeFactory _scopeFactory;
     private static readonly ConcurrentDictionary<long, string> _userStates = new();
 
-    public UpdateHandler(IServiceScopeFactory scopeFactory)
+    public UpdateHandler(IServiceProvider serviceProvider, IServiceScopeFactory scopeFactory)
     {
+        _serviceProvider = serviceProvider;
         _scopeFactory = scopeFactory;
     }
 
@@ -32,13 +35,11 @@ public class UpdateHandler : IUpdateHandler
 
         using var scope = _scopeFactory.CreateScope();
         var vpnDb = scope.ServiceProvider.GetRequiredService<VpnDbContext>();
-        
+
         try
         {
-            if (update.Type == UpdateType.Message && update.Message != null)
-                await ProcessMessageAsync(botClient, update.Message, vpnDb, cancellationToken);
-            else if (update.Type == UpdateType.CallbackQuery && update.CallbackQuery != null)
-                await ProcessCallbackQueryAsync(botClient, update.CallbackQuery, vpnDb, cancellationToken);
+            if (update.Message is { } message) await HandleMessageAsync(botClient, message, vpnDb, cancellationToken);
+            else if (update.CallbackQuery is { } callbackQuery) await HandleCallbackQueryAsync(botClient, callbackQuery, vpnDb, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -46,7 +47,7 @@ public class UpdateHandler : IUpdateHandler
         }
     }
 
-    private async Task ProcessMessageAsync(ITelegramBotClient botClient, Message message, VpnDbContext dbContext, CancellationToken cancellationToken)
+    private async Task HandleMessageAsync(ITelegramBotClient botClient, Message message, VpnDbContext dbContext, CancellationToken cancellationToken)
     {
         if (message.Text == null || message.From == null) return;
         var user = message.From;
@@ -68,23 +69,20 @@ public class UpdateHandler : IUpdateHandler
             }
         }
 
-        long? referrerId = null;
-        if (message.Text.StartsWith("/start "))
-        {
-            var parts = message.Text.Split(' ');
-            if (parts.Length > 1 && long.TryParse(parts[1], out long refId) && refId != user.Id) referrerId = refId;
-        }
-
-        await GetOrCreateUserAsync(user, referrerId, dbContext, cancellationToken);
+        // Авто-регистрация/обновление пользователя в БД
+        var dbUser = await GetOrCreateUserAsync(dbContext, user, cancellationToken);
 
         if (message.Text.StartsWith("/start"))
         {
-            var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://61fe5ed40684db.lhr.life" }) } };
+            string webAppUrl = Environment.GetEnvironmentVariable("WEBAPP_URL")?.Trim() ?? "https://gecko.makeup";
+            webAppUrl = $"{webAppUrl}?t={DateTime.UtcNow.Ticks}";
+            var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = webAppUrl }) } };
+            //var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://8f02d021009568.lhr.life" }) } };
             await botClient.SendMessage(chatId: message.Chat.Id, text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение.", replyMarkup: new InlineKeyboardMarkup(buttons), cancellationToken: cancellationToken);
         }
     }
 
-    private async Task ProcessCallbackQueryAsync(ITelegramBotClient botClient, CallbackQuery callbackQuery, VpnDbContext dbContext, CancellationToken cancellationToken)
+    private async Task HandleCallbackQueryAsync(ITelegramBotClient botClient, CallbackQuery callbackQuery, VpnDbContext vpnDb, CancellationToken cancellationToken)
     {
         var user = callbackQuery.From;
         var chatId = callbackQuery.Message!.Chat.Id;
@@ -102,13 +100,12 @@ public class UpdateHandler : IUpdateHandler
 
         try
         {
-            if (data.StartsWith("hide_")) await HandleHideCommandAsync(botClient, chatId, callbackQuery, cancellationToken);
-            else if (data.StartsWith("reply_")) await HandleReplyCommandAsync(botClient, user.Id, chatId, data, callbackQuery, cancellationToken);
-            else if (data.StartsWith("req_")) await HandleReqCommandAsync(botClient, chatId, data, callbackQuery, dbContext, cancellationToken);
+            if (data.StartsWith("reply_")) await HandleReplyCommandAsync(botClient, chatId, user.Id, data, callbackQuery, cancellationToken);
+            else if (data.StartsWith("req_")) await HandleReqCommandAsync(botClient, chatId, data, callbackQuery, vpnDb, cancellationToken);
             else if (data.StartsWith("renew_")) await HandleRenewCommandAsync(botClient, chatId, data, callbackQuery, cancellationToken);
-            else if (data.StartsWith("t1_") || data.StartsWith("t3_") || data.StartsWith("t6_")) await HandleTariffCommandAsync(botClient, chatId, data, callbackQuery, dbContext, cancellationToken);
-            else if (data.StartsWith("e100_") || data.StartsWith("e300_") || data.StartsWith("e1000_")) await HandleEnergyCommandAsync(botClient, chatId, data, callbackQuery, dbContext, cancellationToken);
-            else await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
+            else if (data.StartsWith("t1_") || data.StartsWith("t3_") || data.StartsWith("t6_")) await HandleRenewConfirmAsync(botClient, chatId, data, callbackQuery, vpnDb, cancellationToken);
+            else if (data.StartsWith("e100_") || data.StartsWith("e300_") || data.StartsWith("e1000_")) await HandleEnergyChargeAsync(botClient, chatId, data, callbackQuery, cancellationToken);
+            else if (data.StartsWith("hide_")) await botClient.DeleteMessage(chatId, callbackQuery.Message!.MessageId, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -116,12 +113,7 @@ public class UpdateHandler : IUpdateHandler
         }
     }
 
-    private async Task HandleHideCommandAsync(ITelegramBotClient botClient, long chatId, CallbackQuery callbackQuery, CancellationToken cancellationToken)
-    {
-        await botClient.DeleteMessage(chatId, callbackQuery.Message!.MessageId, cancellationToken);
-    }
-
-    private async Task HandleReplyCommandAsync(ITelegramBotClient botClient, long userId, long chatId, string data, CallbackQuery callbackQuery, CancellationToken cancellationToken)
+    private async Task HandleReplyCommandAsync(ITelegramBotClient botClient, long chatId, long userId, string data, CallbackQuery callbackQuery, CancellationToken cancellationToken)
     {
         string targetId = data.Replace("reply_", "");
         _userStates[userId] = $"wait_admin_reply_{targetId}";
@@ -153,31 +145,25 @@ public class UpdateHandler : IUpdateHandler
         await botClient.EditMessageReplyMarkup(chatId, callbackQuery.Message!.MessageId, replyMarkup: kb, cancellationToken: cancellationToken);
     }
 
-    private async Task HandleTariffCommandAsync(ITelegramBotClient botClient, long chatId, string data, CallbackQuery callbackQuery, VpnDbContext dbContext, CancellationToken cancellationToken)
+    private async Task HandleRenewConfirmAsync(ITelegramBotClient botClient, long chatId, string data, CallbackQuery callbackQuery, VpnDbContext dbContext, CancellationToken cancellationToken)
     {
-        int months = data.StartsWith("t1_") ? 1 : (data.StartsWith("t3_") ? 3 : 6);
-        int energyBonus = data.StartsWith("t1_") ? 100 : (data.StartsWith("t3_") ? 350 : 1000);
-
-        if (!long.TryParse(data.Substring(3), out long targetId)) return;
-
-        var sub = await dbContext.VpnSubscriptions.FirstOrDefaultAsync(s => s.TelegramId == targetId && s.IsActive, cancellationToken);
-        if (sub != null)
+        int months = data[1] - '0';
+        string targetIdStr = data.Substring(3);
+        if (long.TryParse(targetIdStr, out long targetId))
         {
-            DateTime baseDate = (sub.ExpiryDate.HasValue && sub.ExpiryDate.Value > DateTime.UtcNow) ? sub.ExpiryDate.Value : DateTime.UtcNow;
+            var sub = await dbContext.VpnSubscriptions.FirstOrDefaultAsync(s => s.TelegramId == targetId && s.IsActive, cancellationToken);
+            if (sub == null) { await botClient.AnswerCallbackQuery(callbackQuery.Id, "Подписка не найдена!", showAlert: true, cancellationToken: cancellationToken); return; }
+
+            int energyBonus = months switch { 1 => 100, 3 => 350, 6 => 1000, _ => 0 };
+            DateTime baseDate = sub.ExpiryDate > DateTime.UtcNow ? sub.ExpiryDate.Value : DateTime.UtcNow;
             sub.ExpiryDate = baseDate.AddDays(months * 30);
             sub.SyncStatus = SyncStatus.PendingUpdate;
 
-            // Используем ExecuteUpdate для обновления энергии в Game DB (через raw SQL, т.к. контексты разные)
-            await dbContext.Database.ExecuteSqlRawAsync(
-                "UPDATE GameProfiles SET CurrentEnergy = CurrentEnergy + {0} WHERE TelegramId = {1}", 
-                energyBonus, targetId);
+            using var scope = _scopeFactory.CreateScope();
+            var gameService = scope.ServiceProvider.GetRequiredService<GameService>();
+            await gameService.AddEnergyAsync(targetId, energyBonus, cancellationToken);
 
             dbContext.SupportMessages.Add(new SupportMessage { TelegramId = targetId, Text = $"✅ Ваша подписка продлена на {months} мес!\n⚡ Энергия пополнена: +{energyBonus}", IsFromAdmin = true, IsRead = false, CreatedAt = DateTime.UtcNow });
-
-            await dbContext.Referrals
-                .Where(r => r.InvitedTelegramId == targetId && !r.IsActivated)
-                .ExecuteUpdateAsync(s => s.SetProperty(r => r.IsActivated, true), cancellationToken);
-
             await dbContext.SaveChangesAsync(cancellationToken);
 
             await botClient.SendMessage(chatId: targetId, text: "✅ *Подписка продлена!*", parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
@@ -186,19 +172,21 @@ public class UpdateHandler : IUpdateHandler
         }
     }
 
-    private async Task HandleEnergyCommandAsync(ITelegramBotClient botClient, long chatId, string data, CallbackQuery callbackQuery, VpnDbContext dbContext, CancellationToken cancellationToken)
+    private async Task HandleEnergyChargeAsync(ITelegramBotClient botClient, long chatId, string data, CallbackQuery callbackQuery, CancellationToken cancellationToken)
     {
-        int energyBonus = data.StartsWith("e100_") ? 100 : (data.StartsWith("e300_") ? 300 : 1000);
-        string prefix = data.StartsWith("e100_") ? "e100_" : (data.StartsWith("e300_") ? "e300_" : "e1000_");
+        string prefix = data.StartsWith("e1000_") ? "e1000_" : (data.StartsWith("e300_") ? "e300_" : "e100_");
+        int energyBonus = int.Parse(prefix.Replace("e", "").Replace("_", ""));
 
         if (!long.TryParse(data.Replace(prefix, ""), out long targetId)) return;
 
-        int affected = await dbContext.Database.ExecuteSqlRawAsync(
-            "UPDATE GameProfiles SET CurrentEnergy = CurrentEnergy + {0} WHERE TelegramId = {1}", 
-            energyBonus, targetId);
+        using var scope = _scopeFactory.CreateScope();
+        var gameService = scope.ServiceProvider.GetRequiredService<GameService>();
+        var result = await gameService.AddEnergyAsync(targetId, energyBonus, cancellationToken);
 
-        if (affected > 0)
+        if (result.Success)
         {
+            using var scope2 = _scopeFactory.CreateScope();
+            var dbContext = scope2.ServiceProvider.GetRequiredService<VpnDbContext>();
             dbContext.SupportMessages.Add(new SupportMessage { TelegramId = targetId, Text = $"✅ Энергоблок активирован!\n⚡ Начислено: +{energyBonus}", IsFromAdmin = true, IsRead = false, CreatedAt = DateTime.UtcNow });
             await dbContext.SaveChangesAsync(cancellationToken);
 
@@ -208,22 +196,18 @@ public class UpdateHandler : IUpdateHandler
         }
     }
 
-    private async Task<TelegramUser> GetOrCreateUserAsync(User user, long? referrerId, VpnDbContext dbContext, CancellationToken ct)
+    private async Task<TelegramUser> GetOrCreateUserAsync(VpnDbContext dbContext, User user, CancellationToken ct)
     {
         var dbUser = await dbContext.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == user.Id, ct);
         if (dbUser == null)
         {
-            dbUser = new TelegramUser { TelegramId = user.Id, FirstName = user.FirstName };
+            dbUser = new TelegramUser { TelegramId = user.Id, FirstName = user.FirstName, LanguageCode = user.LanguageCode ?? "ru" };
             dbContext.TelegramUsers.Add(dbUser);
-
-            if (referrerId.HasValue && referrerId.Value != user.Id)
-            {
-                bool refExists = await dbContext.Referrals.AnyAsync(r => r.InvitedTelegramId == user.Id, ct);
-                if (!refExists)
-                {
-                    dbContext.Referrals.Add(new Referral { InviterTelegramId = referrerId.Value, InvitedTelegramId = user.Id, CreatedAt = DateTime.UtcNow, IsActivated = false });
-                }
-            }
+            await dbContext.SaveChangesAsync(ct);
+        }
+        else if (dbUser.FirstName != user.FirstName)
+        {
+            dbUser.FirstName = user.FirstName;
             await dbContext.SaveChangesAsync(ct);
         }
         return dbUser;

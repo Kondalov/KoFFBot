@@ -28,6 +28,7 @@ public static class WebAppEndpoints
             if (user == null) return Results.NotFound("Пользователь не найден");
 
             bool isAdmin = long.TryParse(adminIdStr, out long adminId) && tgId == adminId;
+            var botIp = await KoFFBot.Infrastructure.IpHelper.GetPublicIpAsync();
 
             return Results.Ok(new
             {
@@ -37,7 +38,7 @@ public static class WebAppEndpoints
                 HasSubscription = sub != null,
                 TrafficLimit = sub?.TrafficLimitBytes ?? 0,
                 TrafficUsed = sub?.TrafficUsedBytes ?? 0,
-                ServerIp = sub?.ServerIp ?? "",
+                ServerIp = botIp,
                 Uuid = sub?.Uuid ?? "",
                 ExpiryDate = sub?.ExpiryDate,
                 IsAdmin = isAdmin,
@@ -67,6 +68,12 @@ public static class WebAppEndpoints
         
         app.MapGet("/api/webapp/inbox/unread", async (long tgId, VpnDbContext db) => { 
             return Results.Ok(new { UnreadCount = await db.SupportMessages.CountAsync(m => m.TelegramId == tgId && m.IsFromAdmin && !m.IsRead) }); 
+        });
+
+        // === ДИАГНОСТИКА: Прием логов от клиентской части игры ===
+        app.MapGet("/api/webapp/profile/LOG_{message}", (string message) => {
+            Log.Information("[CLIENT_LOG] {Message}", Uri.UnescapeDataString(message).Replace("_", " "));
+            return Results.Ok();
         });
 
         app.MapPost("/api/webapp/buy", async (BuyRequest req, VpnDbContext db, ITelegramBotClient bot) => {
@@ -111,6 +118,36 @@ public static class WebAppEndpoints
                 catch (Exception ex) { Log.Error(ex, "Ошибка отправки в ТГ"); }
             }
             return Results.Ok();
+        });
+
+        // === НОВЫЙ ЭНДПОИНТ: ВСТРОЕННЫЙ СЕРВЕР ПОДПИСОК (АПРЕЛЬ 2026) ===
+        // Позволяет Hiddify и другим клиентам получать конфиг напрямую из бота
+        app.MapGet("/sub/{uuid}", async (string uuid, VpnDbContext db) => {
+            var sub = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.Uuid == uuid && s.IsActive);
+            if (sub == null) return Results.NotFound("Подписка не найдена или неактивна.");
+
+            // Получаем шаблон сервера для генерации ссылок
+            var template = await db.ServerTemplates.FirstOrDefaultAsync(t => t.ServerIp == sub.ServerIp);
+            if (template == null) return Results.NotFound("Конфигурация сервера еще не синхронизирована.");
+
+            var links = new List<string>();
+            try {
+                var inbounds = System.Text.Json.JsonSerializer.Deserialize<List<dynamic>>(template.InboundsConfigJson);
+                if (inbounds != null) {
+                    foreach (var i in inbounds) {
+                        string proto = i.Protocol.ToString().ToLower();
+                        string name = Uri.EscapeDataString($"KoFF_{sub.Email}");
+                        if (proto == "vless") {
+                            links.Add($"vless://{sub.Uuid}@{sub.ServerIp}:{i.Port}?security=reality&encryption=none&pbk={i.PublicKey}&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni={i.Sni}&sid={i.ShortId}#{name}");
+                        }
+                    }
+                }
+            } catch { }
+
+            if (!links.Any()) return Results.NotFound("Нет доступных протоколов.");
+            
+            string base64Sub = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", links)));
+            return Results.Text(base64Sub, "text/plain");
         });
     }
 }
