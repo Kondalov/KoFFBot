@@ -18,12 +18,12 @@ function startPolling() {
     if (pollingInterval) clearInterval(pollingInterval);
     pollingInterval = setInterval(() => {
         if (window.userId === 0) return;
-        fetch(`/api/webapp/inbox/unread?tgId=${window.userId}`).then(r => r.json()).then(data => {
-            const currentUnread = data.unreadCount || 0;
+        fetch(`/api/webapp/inbox/unread?tgId=${window.userId}&t=${Date.now()}`, { method: 'GET', headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' } }).then(r => r.json()).then(data => {
+            const currentUnread = data ? (data.unreadCount || data.UnreadCount || data.count || 0) : 0;
             if (currentUnread > 0) {
-                document.getElementById('inboxBadge').style.display = 'block';
+                document.getElementById('inboxBadge').classList.add('show-badge');
                 if (currentUnread > lastUnreadCount) { showToast("Новое сообщение от поддержки!"); loadProfile(true); if (document.getElementById('tab-inbox').classList.contains('active')) { loadInbox(); } }
-            } else { document.getElementById('inboxBadge').style.display = 'none'; }
+            } else { document.getElementById('inboxBadge').classList.remove('show-badge'); }
             lastUnreadCount = currentUnread;
         }).catch(() => { });
     }, 4000);
@@ -86,7 +86,7 @@ window.toggleGuide = toggleGuide;
 
 function checkUnread() {
     if (window.userId === 0) return;
-    fetch(`/api/webapp/inbox/unread?tgId=${window.userId}`).then(r => r.json()).then(data => { if (data.unreadCount > 0) document.getElementById('inboxBadge').style.display = 'block'; }).catch(() => { });
+    fetch(`/api/webapp/inbox/unread?tgId=${window.userId}&t=${Date.now()}`, { method: 'GET', headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' } }).then(r => r.json()).then(data => { const count = data ? (data.unreadCount || data.UnreadCount || data.count || 0) : 0; if (count > 0) document.getElementById('inboxBadge').classList.add('show-badge'); else document.getElementById('inboxBadge').classList.remove('show-badge'); }).catch(() => { });
 }
 
 function loadLeaderboard() {
@@ -135,7 +135,7 @@ function loadInbox() {
         });
         container.scrollTop = container.scrollHeight;
         hasLoadedInbox = true;
-        document.getElementById('inboxBadge').style.display = 'none';
+        document.getElementById('inboxBadge').classList.remove('show-badge');
         lastUnreadCount = 0;
     }).catch(() => { });
 }
@@ -181,7 +181,7 @@ function formatBytesToHTML(bytes) {
 function loadProfile(isSilent = false) {
     if (window.userId === 0 && !isSilent) { document.getElementById('loader').style.animation = 'none'; document.getElementById('loader').innerHTML = "⚠️ Откройте через Telegram."; return; }
 
-    fetch(`/api/game/profile?tgId=${window.userId}`).then(async r => {
+    fetch(`/api/game/profile?tgId=${window.userId}&_=${Date.now()}`).then(async r => {
         if (!r.ok) {
             const err = await r.text();
             if (err.includes("заблокирован") && !isSilent) {

@@ -578,14 +578,23 @@ p {
 .badge {
     position: absolute;
     top: -2px;
-    right: 15%;
+    right: 20%;
     background: var(--danger);
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
     border: 2px solid var(--bg-color);
+    z-index: 999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+    transform: scale(0.95);
+}
+
+.badge.show-badge {
+    opacity: 1;
+    pointer-events: auto;
     animation: pulse 2s infinite;
-    display: none;
 }
 
 #loader {
