@@ -3,4 +3,6 @@
 
 # Ignore all env variants
 .env.*
+
+# Ignore build output
 publish_final/
