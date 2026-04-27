@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -726,10 +726,66 @@
     </div>
 
     <div id="tab-guide" class="tab-content">
-        <div class="glass-card">
-            <h1>Инструкции</h1>
-            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">📱 Android <span>▼</span></div><div class="guide-content">1. Установите V2RayNG.<br>2. Скопируйте ключ.<br>3. Импорт из буфера.</div></div>
-            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">🍎 iOS <span>▼</span></div><div class="guide-content">1. Установите Shadowrocket.<br>2. Скопируйте ключ.<br>3. Добавьте через буфер.</div></div>
+        <div class="glass-card" style="padding: 24px;">
+            <h1 style="margin-bottom: 20px;">Инструкции</h1>
+            
+            <div class="accordion" id="guideAccordion">
+                <!-- Android -->
+                <div class="accordion-item" id="guide-android">
+                    <button class="accordion-header" onclick="toggleAccordion(this)">
+                        <div class="header-left">
+                            <span class="icon">🤖</span> Android
+                        </div>
+                        <span class="arrow">▼</span>
+                    </button>
+                    <div class="accordion-content">
+                        <p class="content-text">Подробная инструкция по настройке и подключению для Android устройств.</p>
+                        <a href="https://teletype.in/@hiko1ay/Zm0vBftJ4lQ" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                    </div>
+                </div>
+
+                <!-- iOS -->
+                <div class="accordion-item" id="guide-ios">
+                    <button class="accordion-header" onclick="toggleAccordion(this)">
+                        <div class="header-left">
+                            <span class="icon">🍎</span> iOS
+                        </div>
+                        <span class="arrow">▼</span>
+                    </button>
+                    <div class="accordion-content">
+                        <p class="content-text">Подробная инструкция по настройке и подключению для iOS устройств.</p>
+                        <a href="https://teletype.in/@hiko1ay/U0jUDCV7inF#ywQ2" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                    </div>
+                </div>
+
+                <!-- Windows -->
+                <div class="accordion-item" id="guide-windows">
+                    <button class="accordion-header" onclick="toggleAccordion(this)">
+                        <div class="header-left">
+                            <span class="icon">🪟</span> Windows
+                        </div>
+                        <span class="arrow">▼</span>
+                    </button>
+                    <div class="accordion-content">
+                        <p class="content-text">Подробная инструкция по настройке и подключению для Windows.</p>
+                        <a href="https://teletype.in/@hiko1ay/A0ZdIZPRHr9" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                    </div>
+                </div>
+
+                <!-- Mac -->
+                <div class="accordion-item" id="guide-macos">
+                    <button class="accordion-header" onclick="toggleAccordion(this)">
+                        <div class="header-left">
+                            <span class="icon">💻</span> Mac
+                        </div>
+                        <span class="arrow">▼</span>
+                    </button>
+                    <div class="accordion-content">
+                        <p class="content-text">Подробная инструкция по настройке и подключению для Mac OS.</p>
+                        <a href="https://teletype.in/@hiko1ay/A0ZdIZPRHr9" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -742,16 +798,30 @@
     </div>
 
     <div id="infoModal" class="info-modal-overlay">
-        <div class="info-modal-content">
-            <button class="info-modal-close" onclick="toggleInfoModal()">✖</button>
-            <h2 style="color: var(--accent-cyan); text-align: center; margin-bottom: 20px;">ИНСТРУКЦИЯ</h2>
-            <p style="color: #fff; margin-bottom: 10px;">Вы управляете <b>Кибер-Червем</b>. Обходите защиты!</p>
-            <ul style="color: #fff; margin-bottom: 15px; padding-left: 20px; line-height: 1.6;">
-                <li>🔷 <b>SNI-Пакет</b> — +10 очков.</li>
-                <li>❌ <b>DPI-Блокиратор</b> — Столкновение фатально.</li>
+        <div class="info-modal-content" style="background-color: #16181e; border: 1px solid rgba(0, 229, 255, 0.3); border-radius: 16px; padding: 24px; width: 90%; max-width: 320px; position: relative; box-shadow: 0 0 30px rgba(0, 229, 255, 0.15);">
+            <button class="info-modal-close" style="position: absolute; top: 16px; right: 16px; background: none; border: none; color: #888; font-size: 18px; cursor: pointer;" onclick="toggleInfoModal()">✖</button>
+
+            <h2 style="color: var(--accent-cyan, #00e5ff); text-align: center; margin: 0 0 16px 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.5px;">ИНСТРУКЦИЯ</h2>
+
+            <p style="color: #e0e0e0; margin-bottom: 16px; font-size: 14px; line-height: 1.5; text-align: center;">
+                Управляйте <b>Кибер-Червем</b> и обходите защиты! Заходите каждый день, чтобы получать приятные сюрпризы.
+            </p>
+
+            <ul style="color: #fff; list-style: none; padding: 0; margin: 0 0 20px 0; line-height: 1.6; font-size: 14px;">
+                <li style="margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 10px; font-size: 16px;">🔷</span> <span><b>SNI-Пакет</b> — +10 очков.</span></li>
+                <li style="margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 10px; font-size: 16px;">❌</span> <span><b>DPI-Блокиратор</b> — фатально.</span></li>
+                <li style="margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 10px; font-size: 16px;">🎁</span> <span><b>Сундук</b> — случайный бонус.</span></li>
             </ul>
-            <p style="color: var(--danger); font-size: 14px; background: rgba(255,68,68,0.1); padding: 10px; border-radius: 8px;">⚠️ Награда за Босса — <b>7 дней доступа</b> бесплатно!</p>
-            <button class="btn btn-primary" style="margin-top: 15px;" onclick="toggleInfoModal()">Понятно</button>
+
+            <div style="background: rgba(0, 255, 136, 0.08); border: 1px solid rgba(0, 255, 136, 0.2); padding: 14px; border-radius: 12px; display: flex; align-items: center; gap: 12px;">
+                <div style="font-size: 28px; line-height: 1;">🦠</div>
+                <p style="color: #e0e0e0; font-size: 13px; line-height: 1.4; margin: 0;">
+                    <b style="color: #00ff88; display: block; margin-bottom: 2px; font-size: 14px;">Поймали вирус?</b>
+                    Получите бонус или до 3-х дней продления секретного ключа!
+                </p>
+            </div>
+
+            <button class="btn btn-primary" style="display: block; width: 100%; background: linear-gradient(135deg, #00aaff 0%, #00e5ff 100%); color: #000; border: none; padding: 14px; border-radius: 12px; font-size: 15px; font-weight: bold; cursor: pointer; margin-top: 20px; text-transform: uppercase;" onclick="toggleInfoModal()">Понятно</button>
         </div>
     </div>
 

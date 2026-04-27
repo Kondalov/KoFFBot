@@ -35,8 +35,48 @@ function switchTab(tabId, element) {
     document.getElementById('tab-' + tabId).classList.add('active'); element.classList.add('active');
     if (tabId === 'inbox') { loadInbox(); document.getElementById('inboxBadge').style.display = 'none'; }
     if (tabId === 'leaderboard') { loadLeaderboard(); }
+    if (tabId === 'guide') { autoExpandGuide(); }
 }
 window.switchTab = switchTab;
+
+// === УМНЫЙ АККОРДЕОН (ИНСТРУКЦИИ) ===
+function toggleAccordion(button) {
+    try { window.tg.HapticFeedback.impactOccurred('light'); } catch (e) { }
+    const item = button.parentElement;
+    const isActive = item.classList.contains('active');
+    
+    document.querySelectorAll('.accordion-item').forEach(el => {
+        el.classList.remove('active');
+    });
+
+    if (!isActive) {
+        item.classList.add('active');
+    }
+}
+window.toggleAccordion = toggleAccordion;
+
+function handleLinkClick(e) {
+    try { window.tg.HapticFeedback.notificationOccurred('success'); } catch (e) { }
+}
+window.handleLinkClick = handleLinkClick;
+
+function autoExpandGuide() {
+    const platform = window.tg.platform || 'unknown';
+    let targetId = '';
+
+    if (platform === 'android') targetId = 'guide-android';
+    else if (platform === 'ios' || platform === 'macos') targetId = 'guide-ios';
+    else if (platform === 'tdesktop' || platform === 'windows') targetId = 'guide-windows';
+
+    if (targetId) {
+        const item = document.getElementById(targetId);
+        if (item && !item.classList.contains('active')) {
+            // Закрываем все и открываем нужный
+            document.querySelectorAll('.accordion-item').forEach(el => el.classList.remove('active'));
+            item.classList.add('active');
+        }
+    }
+}
 
 function toggleGuide(headerEl) {
     const content = headerEl.nextElementSibling; content.classList.toggle('open');
