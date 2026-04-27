@@ -95,6 +95,7 @@ public sealed record GameProfile
 
     // === НОВОЕ (ZERO TRUST): Таймер сессии для защиты от SpeedHack/Replay ===
     public DateTime CurrentGameStartTime { get; set; } = DateTime.MinValue;
+    public DateTime LastChestGameTime { get; set; } = DateTime.MinValue;
 
     // Античит для энергии
     public string EnergySignature { get; set; } = string.Empty;

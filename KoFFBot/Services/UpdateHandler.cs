@@ -74,11 +74,71 @@ public class UpdateHandler : IUpdateHandler
 
         if (message.Text.StartsWith("/start"))
         {
+            var parts = message.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length > 1)
+            {
+                await ProcessReferralAsync(botClient, dbContext, user.Id, parts[1], cancellationToken);
+            }
+
             string webAppUrl = Environment.GetEnvironmentVariable("WEBAPP_URL")?.Trim() ?? "https://gecko.makeup";
             webAppUrl = $"{webAppUrl}?t={DateTime.UtcNow.Ticks}";
             var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = webAppUrl }) } };
-            //var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://8f02d021009568.lhr.life" }) } };
+            //var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://3d34096cff96f0.lhr.life" }) } };
             await botClient.SendMessage(chatId: message.Chat.Id, text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение.", replyMarkup: new InlineKeyboardMarkup(buttons), cancellationToken: cancellationToken);
+        }
+    }
+
+    private async Task ProcessReferralAsync(ITelegramBotClient botClient, VpnDbContext dbContext, long invitedId, string startParam, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(startParam)) return;
+
+        // Smart Anti-Fraud: Проверка на корректность ID и попытку саморефералки
+        if (long.TryParse(startParam, out long inviterId))
+        {
+            if (inviterId == invitedId)
+            {
+                Log.Warning("[ANTI-FRAUD] Пользователь {UserId} пытался использовать свою же ссылку.", invitedId);
+                return;
+            }
+
+            // Ищем пригласившего
+            var inviter = await dbContext.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == inviterId, ct);
+            if (inviter == null)
+            {
+                Log.Warning("[REFERRAL] Пригласивший {InviterId} не найден для {UserId}.", inviterId, invitedId);
+                return;
+            }
+
+            // Проверка: не был ли этот пользователь уже приглашен кем-то другим (защита от дублей)
+            var alreadyReferred = await dbContext.Referrals.AnyAsync(r => r.InvitedTelegramId == invitedId, ct);
+            if (alreadyReferred)
+            {
+                Log.Warning("[ANTI-FRAUD] Пользователь {UserId} уже был приглашен ранее.", invitedId);
+                return;
+            }
+
+            // Регистрируем реферал (Smart Logic - Апрель 2026)
+            dbContext.Referrals.Add(new Referral
+            {
+                InviterTelegramId = inviterId,
+                InvitedTelegramId = invitedId,
+                CreatedAt = DateTime.UtcNow,
+                IsActivated = true
+            });
+
+            inviter.ReferralCount += 1;
+            await dbContext.SaveChangesAsync(ct);
+            
+            Log.Information("[REFERRAL] Успешная рефералка! {InviterId} пригласил {UserId}. Всего друзей: {Count}", inviterId, invitedId, inviter.ReferralCount);
+
+            try
+            {
+                await botClient.SendMessage(chatId: inviterId, text: $"🎉 *Новый друг!*\nПо вашей ссылке присоединился новый пользователь.\nТеперь у вас друзей: {inviter.ReferralCount}", parseMode: ParseMode.Markdown, cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Не удалось отправить уведомление о рефералке пользователю {InviterId}", inviterId);
+            }
         }
     }
 

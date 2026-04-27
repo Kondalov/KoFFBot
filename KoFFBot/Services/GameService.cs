@@ -139,10 +139,10 @@ public class GameService
         await _dbContext.SaveChangesAsync(ct); return (true, "Результат сохранен!");
     }
 
-    public async Task<(bool Success, string Message)> ProcessBossVictoryAsync(long telegramId, CancellationToken ct)
+    public async Task<(bool Success, string Message, int? NewEnergy)> ProcessBossVictoryAsync(long telegramId, CancellationToken ct)
     {
         var profile = await GetOrCreateProfileAsync(telegramId, ct);
-        if (profile.IsBanned) return (false, "Аккаунт заблокирован.");
+        if (profile.IsBanned) return (false, "Аккаунт заблокирован.", null);
 
         string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
         bool isAdmin = long.TryParse(adminIdStr, out long adminId) && telegramId == adminId;
@@ -153,54 +153,120 @@ public class GameService
             profile.IsBanned = true;
             profile.BanReason = "Boss SpeedHack (TimeLock Violation).";
             await _dbContext.SaveChangesAsync(ct);
-            return (false, "Аномальное время победы. Аккаунт заблокирован.");
+            return (false, "Аномальное время победы. Аккаунт заблокирован.", null);
         }
 
         profile.BossKills += 1;
         profile.MonthlyBossKills += 1;
         profile.LastBossKillDate = DateTime.UtcNow;
 
-        // ИСПРАВЛЕНИЕ: Используем VpnDbContext для надежного начисления дней (вместо ненадежного raw SQL)
-        var vpnSub = await _vpnDbContext.VpnSubscriptions
-            .FirstOrDefaultAsync(s => s.TelegramId == telegramId && s.IsActive, ct);
+        var random = new Random();
+        int rewardRoll = random.Next(1, 101); // 1-100
+        int? newEnergy = null;
+        string rewardMessage = "";
 
-        if (vpnSub != null)
+        if (rewardRoll <= 5) // 5% chance for key
         {
-            DateTime baseDate = (vpnSub.ExpiryDate.HasValue && vpnSub.ExpiryDate.Value > DateTime.UtcNow)
-                ? vpnSub.ExpiryDate.Value
-                : DateTime.UtcNow;
+            int keyRoll = random.Next(1, 100);
+            int addedDays = keyRoll <= 60 ? 1 : (keyRoll <= 90 ? 2 : 3);
 
-            await _vpnDbContext.VpnSubscriptions
-                .Where(s => s.Uuid == vpnSub.Uuid)
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(s => s.ExpiryDate, baseDate.AddDays(7))
-                    .SetProperty(s => s.SyncStatus, SyncStatus.PendingUpdate)
-                    .SetProperty(s => s.LastModifiedAt, DateTime.UtcNow), ct);
-        }
-        else
-        {
-            // Если активной подписки нет - создаем новую "призовую"
-            var template = await _vpnDbContext.ServerTemplates.FirstOrDefaultAsync(ct);
-            if (template != null)
+            var vpnSub = await _vpnDbContext.VpnSubscriptions
+                .FirstOrDefaultAsync(s => s.TelegramId == telegramId && s.IsActive, ct);
+
+            if (vpnSub != null)
             {
-                _vpnDbContext.VpnSubscriptions.Add(new VpnSubscription
-                {
-                    Uuid = Guid.NewGuid().ToString(),
-                    TelegramId = telegramId,
-                    Email = $"boss_win_{telegramId}",
-                    ServerIp = template.ServerIp,
-                    TrafficLimitBytes = 50L * 1024 * 1024 * 1024, // 50 GB
-                    IsActive = true,
-                    ExpiryDate = DateTime.UtcNow.AddDays(7),
-                    SyncStatus = SyncStatus.PendingAdd,
-                    LastModifiedAt = DateTime.UtcNow
-                });
+                DateTime baseDate = (vpnSub.ExpiryDate.HasValue && vpnSub.ExpiryDate.Value > DateTime.UtcNow)
+                    ? vpnSub.ExpiryDate.Value
+                    : DateTime.UtcNow;
+
+                await _vpnDbContext.VpnSubscriptions
+                    .Where(s => s.Uuid == vpnSub.Uuid)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(s => s.ExpiryDate, baseDate.AddDays(addedDays))
+                        .SetProperty(s => s.SyncStatus, SyncStatus.PendingUpdate)
+                        .SetProperty(s => s.LastModifiedAt, DateTime.UtcNow), ct);
             }
+            else
+            {
+                var template = await _vpnDbContext.ServerTemplates.FirstOrDefaultAsync(ct);
+                if (template != null)
+                {
+                    _vpnDbContext.VpnSubscriptions.Add(new VpnSubscription
+                    {
+                        Uuid = Guid.NewGuid().ToString(),
+                        TelegramId = telegramId,
+                        Email = $"boss_win_{telegramId}",
+                        ServerIp = template.ServerIp,
+                        TrafficLimitBytes = 50L * 1024 * 1024 * 1024,
+                        IsActive = true,
+                        ExpiryDate = DateTime.UtcNow.AddDays(addedDays),
+                        SyncStatus = SyncStatus.PendingAdd,
+                        LastModifiedAt = DateTime.UtcNow
+                    });
+                }
+            }
+            await _vpnDbContext.SaveChangesAsync(ct);
+            rewardMessage = $"Босс побежден! Получено продление на {addedDays} дн.";
+        }
+        else // 95% chance for energy
+        {
+            int energyRoll = random.Next(1, 100);
+            int addedEnergy = 1;
+            if (energyRoll <= 30) addedEnergy = 1;
+            else if (energyRoll <= 55) addedEnergy = 2;
+            else if (energyRoll <= 75) addedEnergy = 3;
+            else if (energyRoll <= 88) addedEnergy = 5;
+            else if (energyRoll <= 96) addedEnergy = 10;
+            else addedEnergy = 25;
+
+            profile.CurrentEnergy += addedEnergy;
+            profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
+            newEnergy = profile.CurrentEnergy;
+            rewardMessage = $"Босс побежден! Найдено +{addedEnergy} ⚡";
         }
 
-        await _vpnDbContext.SaveChangesAsync(ct);
         await _dbContext.SaveChangesAsync(ct);
-        return (true, "Босс побежден! Начислено 7 дней доступа.");
+        return (true, rewardMessage, newEnergy);
+    }
+
+    public async Task<(bool Success, string Message, int? NewEnergy)> ProcessChestCollectionAsync(long telegramId, long score, CancellationToken ct)
+    {
+        var profile = await GetOrCreateProfileAsync(telegramId, ct);
+        if (profile.IsBanned) return (false, "Аккаунт заблокирован.", null);
+
+        string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
+        bool isAdmin = long.TryParse(adminIdStr, out long adminId) && telegramId == adminId;
+
+        // Anti-cheat validations
+        if (!isAdmin && score < 190)
+        {
+            profile.IsBanned = true;
+            profile.BanReason = "Chest Anti-Cheat (Score manipulation).";
+            await _dbContext.SaveChangesAsync(ct);
+            return (false, "Слишком мало очков для сундука. Аккаунт заблокирован.", null);
+        }
+
+        // Zero-Trust: allow only 1 chest per game start session.
+        if (profile.LastChestGameTime == profile.CurrentGameStartTime)
+        {
+            return (false, "Сундук уже собран в этой игре.", null);
+        }
+        profile.LastChestGameTime = profile.CurrentGameStartTime;
+
+        var random = new Random();
+        int energyRoll = random.Next(1, 100);
+        int addedEnergy = 1;
+        if (energyRoll <= 35) addedEnergy = 1;
+        else if (energyRoll <= 65) addedEnergy = 2;
+        else if (energyRoll <= 85) addedEnergy = 3;
+        else if (energyRoll <= 95) addedEnergy = 5;
+        else addedEnergy = 10;
+
+        profile.CurrentEnergy += addedEnergy;
+        profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
+        
+        await _dbContext.SaveChangesAsync(ct);
+        return (true, $"Найден сундук! +{addedEnergy} ⚡", profile.CurrentEnergy);
     }
 
     public async Task<(bool Success, string Message, int NewEnergy)> AddCheatEnergyAsync(long telegramId, int amount, CancellationToken ct)

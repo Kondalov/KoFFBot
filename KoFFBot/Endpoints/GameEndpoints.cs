@@ -55,7 +55,15 @@ public static class GameEndpoints
             if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
             var result = await gameService.ProcessBossVictoryAsync(req.TelegramId, CancellationToken.None);
             if (!result.Success) return Results.BadRequest(result.Message);
-            return Results.Ok(new { Message = result.Message });
+            return Results.Ok(new { Message = result.Message, NewEnergy = result.NewEnergy });
+        });
+
+        app.MapPost("/api/game/chest_collect", async (GameScoreRequest req, GameService gameService) => {
+            string token = (Environment.GetEnvironmentVariable("BOT_TOKEN") ?? "").Trim('"', '\'', ' ');
+            if (!AntiCheatSigner.ValidateTelegramInitData(req.Signature, token)) return Results.BadRequest("Ошибка авторизации.");
+            var result = await gameService.ProcessChestCollectionAsync(req.TelegramId, req.Score, CancellationToken.None);
+            if (!result.Success) return Results.BadRequest(result.Message);
+            return Results.Ok(new { Message = result.Message, NewEnergy = result.NewEnergy });
         });
 
         app.MapPost("/api/game/cheat", async (GameActionRequest req, GameService gameService) => {

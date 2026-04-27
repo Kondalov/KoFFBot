@@ -6,6 +6,7 @@ let snake = []; let dx = 0; let dy = 0; let score = 0; let level = 1;
 let isGameRunning = false; let gameLoopTimer;
 let food = { x: 5, y: 5 }; let cdn = { x: 10, y: 10 };
 let boss = { active: false, x: 15, y: 15 };
+let chest = { active: false, x: -1, y: -1, spawnTime: 0 }; let chestClaimedThisGame = false;
 let glitchTimer; let controlsInverted = false;
 let globalTime = 0; // Для анимации пульсации
 
@@ -151,6 +152,7 @@ function initGameEngine() {
         window.gameLogger("initGameEngine_CALLED");
         snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
         dx = 1; dy = 0; boss.active = false; controlsInverted = false;
+        chest.active = false; chestClaimedThisGame = false; window.chestSpawnedScore = 0;
         updateScoreUI();
         spawnFood();
         isGameRunning = true;
@@ -407,8 +409,12 @@ async function showGameOver(wonBoss) {
             });
             
             if (response.ok) {
+                const res = await response.json();
                 window.bossKills = (window.bossKills || 0) + 1;
-                window.tg.showAlert("🎉 ВИРУС УНИЧТОЖЕН! Вам начислено 7 дней элитного доступа!");
+                window.tg.showAlert("🎉 ВИРУС УНИЧТОЖЕН!\n\n" + (res.message || "Вы получили награду!"));
+                if (res.newEnergy !== undefined && res.newEnergy !== null) {
+                    document.getElementById('energyValue').innerText = res.newEnergy;
+                }
             } else {
                 const errText = await response.text();
                 window.tg.showAlert("❌ ОШИБКА: " + errText);
@@ -464,6 +470,50 @@ function gameLoop() {
     } else { snake.pop(); }
 
     if (head.x === cdn.x && head.y === cdn.y) { showGameOver(false); return; }
+
+    // === ЛОГИКА СУНДУКА ===
+    if (score >= 190 && !chestClaimedThisGame && !chest.active && (!window.chestSpawnedScore || window.chestSpawnedScore < 190)) {
+        window.chestSpawnedScore = 190;
+        chest.active = true;
+        chest.spawnTime = Date.now();
+        let valid = false;
+        while (!valid) {
+            chest.x = Math.floor(Math.random() * tileCount);
+            chest.y = Math.floor(Math.random() * tileCount);
+            let conflict = false;
+            for (let s of snake) if (s.x === chest.x && s.y === chest.y) conflict = true;
+            if (food.x === chest.x && food.y === chest.y) conflict = true;
+            if (cdn.x === chest.x && cdn.y === chest.y) conflict = true;
+            if (boss.active && Math.abs(chest.x - boss.x) <= 1 && Math.abs(chest.y - boss.y) <= 1) conflict = true;
+            if (!conflict) valid = true;
+        }
+        window.showToast("🎁 Появился сундук на 3 секунды!");
+    }
+
+    if (chest.active && Date.now() - chest.spawnTime > 3000) {
+        chest.active = false;
+    }
+
+    if (chest.active && head.x === chest.x && head.y === chest.y) {
+        chest.active = false;
+        chestClaimedThisGame = true;
+        fetch('/api/game/chest_collect', { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ TelegramId: window.userId, Score: score, Signature: window.tg.initData }) 
+        }).then(async r => {
+            if (r.ok) {
+                const res = await r.json();
+                window.showToast(res.message || "Сундук собран!");
+                if (res.newEnergy !== undefined && res.newEnergy !== null) {
+                    document.getElementById('energyValue').innerText = res.newEnergy;
+                }
+            } else {
+                window.showToast("❌ Ошибка сбора сундука");
+            }
+        }).catch(e => console.error(e));
+    }
+    // =======================
 
     let speed = 120; // Базовое значение задержки
 
@@ -528,6 +578,19 @@ function drawGame() {
     ctx.shadowBlur = 0;
     ctx.fillRect(cx + cs / 2 - 1, cy + 2, 2, cs - 4);
     ctx.fillRect(cx + 2, cy + cs / 2 - 1, cs - 4, 2);
+
+    // === СУНДУК ===
+    if (chest.active) {
+        ctx.fillStyle = '#FFD700'; // Золотой
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = '#FFD700';
+        let chx = chest.x * gridSize + 2;
+        let chy = chest.y * gridSize + 2;
+        let chs = gridSize - 4;
+        ctx.fillRect(chx, chy, chs, chs);
+        ctx.fillStyle = '#FFA500'; // Оранжевый блик
+        ctx.fillRect(chx + 2, chy + 2, chs - 4, chs - 4);
+    }
 
     // === БОСС (Анимированный Вирус) ===
     if (boss.active) {
