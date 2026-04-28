@@ -1,4 +1,4 @@
-﻿window.tg = window.Telegram.WebApp;
+window.tg = window.Telegram.WebApp;
 try { window.tg.ready(); window.tg.expand(); if (window.tg.setHeaderColor) window.tg.setHeaderColor('#0f0f13'); } catch (e) { }
 
 window.userId = window.tg.initDataUnsafe?.user?.id || 0;
@@ -18,22 +18,49 @@ function startPolling() {
     if (pollingInterval) clearInterval(pollingInterval);
     pollingInterval = setInterval(() => {
         if (window.userId === 0) return;
-        fetch(`/api/webapp/inbox/unread?tgId=${window.userId}&t=${Date.now()}`, { method: 'GET', headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' } }).then(r => r.json()).then(data => {
-            const currentUnread = data ? (data.unreadCount || data.UnreadCount || data.count || 0) : 0;
-            if (currentUnread > 0) {
-                document.getElementById('inboxBadge').classList.add('show-badge');
-                if (currentUnread > lastUnreadCount) { showToast("Новое сообщение от поддержки!"); loadProfile(true); if (document.getElementById('tab-inbox').classList.contains('active')) { loadInbox(); } }
-            } else { document.getElementById('inboxBadge').classList.remove('show-badge'); }
-            lastUnreadCount = currentUnread;
-        }).catch(() => { });
+        fetch(`/api/webapp/inbox/unread?tgId=${window.userId}&t=${Date.now()}`, {
+            method: 'GET',
+            headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' }
+        })
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!data) return;
+                const currentUnread = data.unreadCount || data.UnreadCount || data.count || 0;
+                const badge = document.getElementById('inboxBadge');
+
+                if (badge) {
+                    if (currentUnread > 0) {
+                        badge.classList.add('show-badge');
+                        if (currentUnread > lastUnreadCount) {
+                            showToast("Новое сообщение от поддержки!");
+                            loadProfile(true);
+                            if (document.getElementById('tab-inbox').classList.contains('active')) {
+                                loadInbox();
+                            }
+                        }
+                    } else {
+                        badge.classList.remove('show-badge');
+                    }
+                }
+                lastUnreadCount = currentUnread;
+            }).catch(() => { });
     }, 4000);
 }
 
 function switchTab(tabId, element) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-    document.getElementById('tab-' + tabId).classList.add('active'); element.classList.add('active');
-    if (tabId === 'inbox') { loadInbox(); document.getElementById('inboxBadge').style.display = 'none'; }
+    document.getElementById('tab-' + tabId).classList.add('active');
+    element.classList.add('active');
+
+    if (tabId === 'inbox') {
+        loadInbox();
+        const badge = document.getElementById('inboxBadge');
+        if (badge) {
+            badge.style.display = '';
+            badge.classList.remove('show-badge');
+        }
+    }
     if (tabId === 'leaderboard') { loadLeaderboard(); }
     if (tabId === 'guide') { autoExpandGuide(); }
 }
@@ -86,7 +113,24 @@ window.toggleGuide = toggleGuide;
 
 function checkUnread() {
     if (window.userId === 0) return;
-    fetch(`/api/webapp/inbox/unread?tgId=${window.userId}&t=${Date.now()}`, { method: 'GET', headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' } }).then(r => r.json()).then(data => { const count = data ? (data.unreadCount || data.UnreadCount || data.count || 0) : 0; if (count > 0) document.getElementById('inboxBadge').classList.add('show-badge'); else document.getElementById('inboxBadge').classList.remove('show-badge'); }).catch(() => { });
+    fetch(`/api/webapp/inbox/unread?tgId=${window.userId}&t=${Date.now()}`, {
+        method: 'GET',
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' }
+    })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+            if (!data) return;
+            const count = data.unreadCount || data.UnreadCount || data.count || 0;
+            const badge = document.getElementById('inboxBadge');
+
+            if (badge) {
+                if (count > 0) {
+                    badge.classList.add('show-badge');
+                } else {
+                    badge.classList.remove('show-badge');
+                }
+            }
+        }).catch(() => { });
 }
 
 function loadLeaderboard() {
@@ -240,10 +284,19 @@ function loadProfile(isSilent = false) {
                     } else { dText.innerText = 'Истек'; dText.style.color = "var(--danger)"; tBar.style.width = '0%'; tBar.className = "progress-fill fill-danger"; }
                 } catch (e) { document.getElementById('daysLeft').innerText = "∞"; }
             } else { document.getElementById('daysLeft').innerText = "∞"; document.getElementById('expiryDateText').innerText = "Бессрочно"; document.getElementById('timeBar').style.width = '100%'; }
-// Возвращаем старый, рабочий формат ссылки на порт 8080 по просьбе пользователя
-window.vpnLinkToCopy = `http://${data.serverIp || window.location.hostname}:8080/${data.uuid || ''}`;
-document.getElementById('keyLinkText').innerText = window.vpnLinkToCopy;
-        } else { document.getElementById('state-has-sub').style.display = 'none'; document.getElementById('state-no-sub').style.display = 'block'; }
+            // Возвращаем старый, рабочий формат ссылки на порт 8080 по просьбе пользователя
+            window.vpnLinkToCopy = `http://${data.serverIp || window.location.hostname}:8080/${data.uuid || ''}`;
+
+            // БЕЗОПАСНАЯ ВСТАВКА (Защита от краша JS)
+            const keyBox = document.getElementById('keyLinkText') || document.getElementById('keyLink');
+            if (keyBox) {
+                keyBox.innerText = window.vpnLinkToCopy;
+            }
+
+        } else {
+            document.getElementById('state-has-sub').style.display = 'none';
+            document.getElementById('state-no-sub').style.display = 'block';
+        }
 
         if (!isSilent) { checkUnread(); startPolling(); }
     }).catch(e => { if (!isSilent) { document.getElementById('loader').style.animation = 'none'; document.getElementById('loader').innerHTML = e.message === "not_found" ? "⚠️ Отправьте боту /start" : "❌ Ошибка сервера."; } });
@@ -397,9 +450,12 @@ window.claimRetentionBonus = function () {
                     window.tg.showAlert("❌ " + err);
                 } else {
                     const res = await r.json();
-                    document.getElementById('energyValue').innerText = res.newEnergy;
+                    const finalEnergy = res.newEnergy !== undefined ? res.newEnergy : (res.NewEnergy !== undefined ? res.NewEnergy : null);
+                    if (finalEnergy !== null) document.getElementById('energyValue').innerText = finalEnergy;
+                    
                     window.canClaimDaily = false;
-                    window.showToast("🎁 " + res.Message);
+                    const finalMsg = res.message || res.Message || "Бонус успешно начислен!";
+                    window.showToast("🎁 " + finalMsg);
                 }
             }).catch(() => window.showToast("❌ Ошибка связи с сервером."));
         return;

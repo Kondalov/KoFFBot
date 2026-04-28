@@ -1,4 +1,4 @@
-﻿:root {
+:root {
     --bg-color: #0f0f13;
     --card-bg: rgba(255, 255, 255, 0.04);
     --card-border: rgba(255, 255, 255, 0.08);
@@ -586,16 +586,20 @@ p {
     border: 2px solid var(--bg-color);
     z-index: 999;
     opacity: 0;
+    visibility: hidden;
     pointer-events: none;
-    transition: opacity 0.3s;
-    transform: scale(0.95);
+    transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.3s;
+    transform: scale(0.5);
+    will-change: opacity, transform;
 }
 
-.badge.show-badge {
-    opacity: 1;
-    pointer-events: auto;
-    animation: pulse 2s infinite;
-}
+    .badge.show-badge {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        transform: scale(1);
+        animation: pulse 2s infinite;
+    }
 
 #loader {
     text-align: center;
