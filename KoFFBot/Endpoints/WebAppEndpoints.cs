@@ -66,10 +66,10 @@ public static class WebAppEndpoints
             return Results.Ok(msgs.Select(m => new { m.Id, m.Text, m.IsFromAdmin, CreatedAt = m.CreatedAt.ToString("HH:mm dd.MM") })); 
         });
         
-        app.MapGet("/api/webapp/inbox/unread", async (long tgId, VpnDbContext db) => { 
-            return Results.Ok(new { UnreadCount = await db.SupportMessages.CountAsync(m => m.TelegramId == tgId && m.IsFromAdmin && !m.IsRead) }); 
+        app.MapGet("/api/webapp/inbox/unread", async (long tgId, VpnDbContext db) => {
+            var count = await db.SupportMessages.CountAsync(m => m.TelegramId == tgId && m.IsFromAdmin && !m.IsRead);
+            return Results.Json(new { unreadCount = count });
         });
-
         // === ДИАГНОСТИКА: Прием логов от клиентской части игры ===
         app.MapGet("/api/webapp/profile/LOG_{message}", (string message) => {
             Log.Information("[CLIENT_LOG] {Message}", Uri.UnescapeDataString(message).Replace("_", " "));

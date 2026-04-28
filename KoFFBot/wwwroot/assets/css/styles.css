@@ -1,4 +1,4 @@
-﻿:root {
+:root {
     --bg-color: #0f0f13;
     --card-bg: rgba(255, 255, 255, 0.04);
     --card-border: rgba(255, 255, 255, 0.08);
@@ -428,26 +428,109 @@ p {
     overflow: hidden;
 }
 
-.guide-header {
-    padding: 16px;
+/* === СТИЛЬНЫЙ АККОРДЕОН (Гайды) === */
+.accordion {
     display: flex;
-    justify-content: space-between;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.accordion-item {
+    background-color: rgba(255, 255, 255, 0.03);
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.accordion-item.active {
+    border-color: rgba(0, 242, 255, 0.3);
+    background-color: rgba(0, 242, 255, 0.05);
+}
+
+.accordion-header {
+    width: 100%;
+    display: flex;
     align-items: center;
+    justify-content: space-between;
+    background: none;
+    border: none;
+    padding: 18px;
+    color: var(--text-main);
+    font-size: 16px;
     font-weight: 600;
     cursor: pointer;
+    outline: none;
 }
 
-.guide-content {
-    padding: 0 16px 16px 16px;
-    display: none;
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.icon {
+    font-size: 20px;
+    width: 24px;
+    text-align: center;
+}
+
+.arrow {
+    font-size: 12px;
+    color: var(--text-muted);
+    transition: transform 0.3s ease;
+}
+
+.accordion-item.active .arrow {
+    transform: rotate(180deg);
+    color: var(--accent-cyan);
+}
+
+.accordion-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s ease;
+    padding: 0 18px;
+    text-align: center;
+}
+
+.accordion-item.active .accordion-content {
+    padding: 0 18px 20px 18px;
+    max-height: 250px;
+}
+
+.content-text {
     color: var(--text-muted);
     font-size: 14px;
+    line-height: 1.5;
+    margin: 0 0 18px 0;
 }
 
-    .guide-content.open {
-        display: block;
-        animation: fadeIn 0.3s ease;
-    }
+.btn-go {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    background: linear-gradient(135deg, #0088ff 0%, var(--accent-cyan) 100%);
+    color: #000 !important;
+    text-decoration: none;
+    padding: 14px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+    box-shadow: 0 4px 15px rgba(0, 242, 255, 0.2);
+}
+
+.btn-go:active {
+    transform: scale(0.96);
+}
+
+.btn-go:hover {
+    box-shadow: 0 0 20px rgba(0, 242, 255, 0.4);
+}
 
 .bottom-nav {
     position: fixed;
@@ -495,15 +578,28 @@ p {
 .badge {
     position: absolute;
     top: -2px;
-    right: 15%;
+    right: 20%;
     background: var(--danger);
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
     border: 2px solid var(--bg-color);
-    animation: pulse 2s infinite;
-    display: none;
+    z-index: 999;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.3s;
+    transform: scale(0.5);
+    will-change: opacity, transform;
 }
+
+    .badge.show-badge {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        transform: scale(1);
+        animation: pulse 2s infinite;
+    }
 
 #loader {
     text-align: center;

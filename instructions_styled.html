@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Инструкции - Меню</title>
+    <style>
+        /* Главное исправление для кнопки: учитываем отступы при расчете ширины 100% */
+        * {
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-dark: #0d0f13;
+            --card-bg: #16181e;
+            --item-bg: #1e2028;
+            --accent-cyan: #00e5ff;
+            --text-main: #ffffff;
+            --text-muted: #9ba1a6;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .instructions-container {
+            background-color: var(--card-bg);
+            border-radius: 20px;
+            padding: 24px;
+            width: 100%;
+            max-width: 350px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .instructions-title {
+            color: var(--accent-cyan);
+            font-size: 28px;
+            font-weight: bold;
+            margin: 0 0 24px 0;
+            text-shadow: 0 0 15px rgba(0, 229, 255, 0.3);
+        }
+
+        .accordion {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .accordion-item {
+            background-color: var(--item-bg);
+            border-radius: 14px;
+            overflow: hidden;
+            border: 1px solid transparent;
+            transition: border-color 0.3s ease;
+        }
+
+        .accordion-item.active {
+            border-color: rgba(0, 229, 255, 0.3);
+            background-color: rgba(30, 32, 40, 0.8);
+        }
+
+        .accordion-header {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: none;
+            border: none;
+            padding: 16px;
+            color: var(--text-main);
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .icon {
+            font-size: 20px;
+            width: 24px;
+            text-align: center;
+        }
+
+        .arrow {
+            font-size: 12px;
+            color: var(--text-muted);
+            transition: transform 0.3s ease;
+        }
+
+        .accordion-item.active .arrow {
+            transform: rotate(180deg);
+            color: var(--accent-cyan);
+        }
+
+        .accordion-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out, padding 0.3s ease;
+            padding: 0 16px;
+            text-align: center; /* Исправление: центрируем всё внутри */
+        }
+
+        .accordion-item.active .accordion-content {
+            padding: 0 16px 16px 16px;
+            max-height: 200px; 
+        }
+
+        .content-text {
+            color: var(--text-muted);
+            font-size: 14px;
+            line-height: 1.5;
+            margin: 0 0 16px 0;
+            text-align: center; /* Исправление: текст строго по центру */
+        }
+
+        .btn-go {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 90%; /* Сделаем её чуть ýже, чтобы смотрелась аккуратнее */
+            margin: 0 auto; /* Центрируем саму кнопку */
+            background: linear-gradient(135deg, #00aaff 0%, #00e5ff 100%);
+            color: #000;
+            text-decoration: none;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+
+        .btn-go:active {
+            transform: scale(0.98);
+        }
+
+        .btn-go:hover {
+            opacity: 0.9;
+            box-shadow: 0 0 15px rgba(0, 229, 255, 0.4);
+        }
+    </style>
+</head>
+<body>
+
+<div class="instructions-container">
+    <h1 class="instructions-title">Инструкции</h1>
+    
+    <div class="accordion">
+        <!-- Android -->
+        <div class="accordion-item">
+            <button class="accordion-header" onclick="toggleAccordion(this)">
+                <div class="header-left">
+                    <span class="icon">🤖</span> Android
+                </div>
+                <span class="arrow">▼</span>
+            </button>
+            <div class="accordion-content">
+                <p class="content-text">Подробная инструкция по настройке и подключению для Android устройств.</p>
+                <a href="https://teletype.in/@hiko1ay/Zm0vBftJ4lQ" target="_blank" class="btn-go">Перейти</a>
+            </div>
+        </div>
+
+        <!-- iOS -->
+        <div class="accordion-item">
+            <button class="accordion-header" onclick="toggleAccordion(this)">
+                <div class="header-left">
+                    <span class="icon">🍎</span> iOS
+                </div>
+                <span class="arrow">▼</span>
+            </button>
+            <div class="accordion-content">
+                <p class="content-text">Подробная инструкция по настройке и подключению для iOS устройств.</p>
+                <a href="https://teletype.in/@hiko1ay/U0jUDCV7inF#ywQ2" target="_blank" class="btn-go">Перейти</a>
+            </div>
+        </div>
+
+        <!-- Windows -->
+        <div class="accordion-item">
+            <button class="accordion-header" onclick="toggleAccordion(this)">
+                <div class="header-left">
+                    <span class="icon">🪟</span> Windows
+                </div>
+                <span class="arrow">▼</span>
+            </button>
+            <div class="accordion-content">
+                <p class="content-text">Подробная инструкция по настройке и подключению для Windows.</p>
+                <a href="https://teletype.in/@hiko1ay/A0ZdIZPRHr9" target="_blank" class="btn-go">Перейти</a>
+            </div>
+        </div>
+
+        <!-- Mac -->
+        <div class="accordion-item">
+            <button class="accordion-header" onclick="toggleAccordion(this)">
+                <div class="header-left">
+                    <span class="icon">💻</span> Mac
+                </div>
+                <span class="arrow">▼</span>
+            </button>
+            <div class="accordion-content">
+                <p class="content-text">Подробная инструкция по настройке и подключению для Mac OS.</p>
+                <a href="https://teletype.in/@hiko1ay/A0ZdIZPRHr9" target="_blank" class="btn-go">Перейти</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function toggleAccordion(button) {
+        const item = button.parentElement;
+        const isActive = item.classList.contains('active');
+        
+        document.querySelectorAll('.accordion-item').forEach(el => {
+            el.classList.remove('active');
+        });
+
+        if (!isActive) {
+            item.classList.add('active');
+        }
+    }
+</script>
+
+</body>
+</html>

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>KoFFPanel App</title>
-    <link rel="stylesheet" href="assets/css/styles.css">
+    <link rel="stylesheet" href="assets/css/styles.css?v=15">
     <style>
         /* === АДАПТИВНОЕ МОДАЛЬНОЕ ОКНО === */
         .info-modal-overlay {
@@ -726,10 +726,66 @@
     </div>
 
     <div id="tab-guide" class="tab-content">
-        <div class="glass-card">
-            <h1>Инструкции</h1>
-            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">📱 Android <span>▼</span></div><div class="guide-content">1. Установите V2RayNG.<br>2. Скопируйте ключ.<br>3. Импорт из буфера.</div></div>
-            <div class="guide-item"><div class="guide-header" onclick="toggleGuide(this)">🍎 iOS <span>▼</span></div><div class="guide-content">1. Установите Shadowrocket.<br>2. Скопируйте ключ.<br>3. Добавьте через буфер.</div></div>
+        <div class="glass-card" style="padding: 24px;">
+            <h1 style="margin-bottom: 20px;">Инструкции</h1>
+
+            <div class="accordion" id="guideAccordion">
+                <!-- Android -->
+                <div class="accordion-item" id="guide-android">
+                    <button class="accordion-header" onclick="toggleAccordion(this)">
+                        <div class="header-left">
+                            <span class="icon">🤖</span> Android
+                        </div>
+                        <span class="arrow">▼</span>
+                    </button>
+                    <div class="accordion-content">
+                        <p class="content-text">Подробная инструкция по настройке и подключению для Android устройств.</p>
+                        <a href="https://teletype.in/@hiko1ay/Zm0vBftJ4lQ" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                    </div>
+                </div>
+
+                <!-- iOS -->
+                <div class="accordion-item" id="guide-ios">
+                    <button class="accordion-header" onclick="toggleAccordion(this)">
+                        <div class="header-left">
+                            <span class="icon">🍎</span> iOS
+                        </div>
+                        <span class="arrow">▼</span>
+                    </button>
+                    <div class="accordion-content">
+                        <p class="content-text">Подробная инструкция по настройке и подключению для iOS устройств.</p>
+                        <a href="https://teletype.in/@hiko1ay/U0jUDCV7inF#ywQ2" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                    </div>
+                </div>
+
+                <!-- Windows -->
+                <div class="accordion-item" id="guide-windows">
+                    <button class="accordion-header" onclick="toggleAccordion(this)">
+                        <div class="header-left">
+                            <span class="icon">🪟</span> Windows
+                        </div>
+                        <span class="arrow">▼</span>
+                    </button>
+                    <div class="accordion-content">
+                        <p class="content-text">Подробная инструкция по настройке и подключению для Windows.</p>
+                        <a href="https://teletype.in/@hiko1ay/A0ZdIZPRHr9" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                    </div>
+                </div>
+
+                <!-- Mac -->
+                <div class="accordion-item" id="guide-macos">
+                    <button class="accordion-header" onclick="toggleAccordion(this)">
+                        <div class="header-left">
+                            <span class="icon">💻</span> Mac
+                        </div>
+                        <span class="arrow">▼</span>
+                    </button>
+                    <div class="accordion-content">
+                        <p class="content-text">Подробная инструкция по настройке и подключению для Mac OS.</p>
+                        <a href="https://teletype.in/@hiko1ay/A0ZdIZPRHr9" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -769,7 +825,7 @@
         </div>
     </div>
 
-    <script src="assets/js/app.js?v=9"></script>
-    <script src="assets/js/game.js?v=9"></script>
+    <script src="assets/js/app.js?v=16"></script>
+    <script src="assets/js/game.js?v=16"></script>
 </body>
 </html>
