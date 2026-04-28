@@ -536,10 +536,14 @@
 
     <div id="tab-profile" class="tab-content">
         <div id="state-no-sub" style="display: none; text-align: center; padding-top: 40px;">
-            <div style="font-size: 70px; margin-bottom: 20px; filter: drop-shadow(0 0 20px rgba(0, 242, 255, 0.4));">🛡️</div>
+            <div style="margin-bottom: 20px; position: relative; display: inline-block;">
+                <img src="assets/img/cartoon-style-green.png" alt="KoFF Анонимность"
+                     style="width: 140px; height: 140px; border-radius: 20px; object-fit: cover; filter: drop-shadow(0 0 20px rgba(0, 242, 255, 0.4)); border: 2px solid var(--accent-cyan);"
+                     onerror="this.onerror=null; this.outerHTML='<div style=\'font-size: 70px; filter: drop-shadow(0 0 20px rgba(0, 242, 255, 0.4));\'>🦎</div>';">
+            </div>
             <h1>Анонимность 2.0</h1>
-            <p>Высокоскоростной VPN-туннель нового поколения.</p>
-            <button class="btn btn-primary" onclick="generateVpn(this)" style="margin-top: 30px;">🚀 ЗАПУСТИТЬ ТУННЕЛЬ</button>
+            <p>Туннель скорости и приватности. Играй — получай награды!</p>
+            <button class="btn btn-primary" onclick="if(this.dataset.clicked) return; this.dataset.clicked='true'; try { generateVpn(this); } catch(e) { this.dataset.clicked=''; }" style="margin-top: 30px;">🚀 ЗАПУСТИТЬ ТУННЕЛЬ</button>
         </div>
 
         <div id="state-has-sub" style="display: none;">
