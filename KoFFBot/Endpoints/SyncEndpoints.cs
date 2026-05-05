@@ -127,38 +127,6 @@ public static class SyncEndpoints
 
         app.MapGet("/api/stats", async (VpnDbContext db) => Results.Ok(new { TotalUsers = await db.TelegramUsers.CountAsync() }));
 
-        app.MapGet("/sub/{uuid}", async (string uuid, VpnDbContext db) => {
-            var sub = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.Uuid == uuid);
-            if (sub == null || !sub.IsActive) return Results.NotFound("Подписка не найдена или неактивна.");
-
-            var template = await db.ServerTemplates.FirstOrDefaultAsync(t => t.ServerIp == sub.ServerIp);
-            if (template == null) return Results.NotFound("Конфигурация сервера не найдена.");
-
-            try
-            {
-                var inbounds = System.Text.Json.JsonSerializer.Deserialize<List<dynamic>>(template.InboundsConfigJson);
-                var vless = inbounds?.FirstOrDefault(i => i.GetProperty("Protocol").GetString() == "VLESS");
-
-                if (vless == null) return Results.NotFound("VLESS inbound не найден.");
-
-                string port = vless.GetProperty("Port").ToString();
-                string sni = vless.GetProperty("Sni").GetString();
-                string pbk = vless.GetProperty("PublicKey").GetString();
-                string sid = vless.GetProperty("ShortId").GetString();
-
-                // Формируем современную VLESS REALITY ссылку (Стандарт Апрель 2026)
-                // Используем VISION flow для лучшей проходимости и совместимости с Hiddify
-                string vlessLink = $"vless://{uuid}@{sub.ServerIp}:{port}?type=tcp&security=reality&pbk={pbk}&fp=chrome&sni={sni}&sid={sid}&spx=%2F&flow=xtls-rprx-vision#{Uri.EscapeDataString("KoFFBot_" + sub.Email)}";
-
-                // Возвращаем в чистом виде (Hiddify поймет и так)
-                return Results.Content(vlessLink, "text/plain; charset=utf-8");
-            }
-            catch (Exception ex)
-            {
-                return Results.Problem("Ошибка генерации конфига: " + ex.Message);
-            }
-        });
-
         app.MapPost("/api/sync/pool", async (List<ReserveKeyDto> keys, VpnDbContext db) => {
             await db.VpnSubscriptions
                 .Where(s => s.TelegramId == 0 && s.Email.StartsWith("reserve_"))
