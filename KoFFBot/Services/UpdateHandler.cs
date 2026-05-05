@@ -185,7 +185,7 @@ public class UpdateHandler : IUpdateHandler
     {
         if (!long.TryParse(data.Replace("req_", ""), out long targetId)) return;
 
-        string requisites = "Здравствуйте! Оплата по номеру телефона: 8 909 01 00 473 (Сбербанк).\nПосле оплаты отправьте скриншот чека сюда.";
+        string requisites = "Здравствуйте! Оплата по номеру телефона: 8 909 01 00 473 (Сбербанк).";
         dbContext.SupportMessages.Add(new SupportMessage { TelegramId = targetId, Text = requisites, IsFromAdmin = true, IsRead = false, CreatedAt = DateTime.UtcNow });
         await dbContext.SaveChangesAsync(cancellationToken);
 

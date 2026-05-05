@@ -285,7 +285,7 @@ function loadProfile(isSilent = false) {
                 } catch (e) { document.getElementById('daysLeft').innerText = "∞"; }
             } else { document.getElementById('daysLeft').innerText = "∞"; document.getElementById('expiryDateText').innerText = "Бессрочно"; document.getElementById('timeBar').style.width = '100%'; }
             // Возвращаем старый, рабочий формат ссылки на порт 8080 по просьбе пользователя
-            window.vpnLinkToCopy = `http://${data.serverIp || window.location.hostname}:8080/${data.uuid || ''}`;
+            window.vpnLinkToCopy = `https://link.partherhr.ru/${data.uuid || ''}`;
 
             // БЕЗОПАСНАЯ ВСТАВКА (Защита от краша JS)
             const keyBox = document.getElementById('keyLinkText') || document.getElementById('keyLink');
