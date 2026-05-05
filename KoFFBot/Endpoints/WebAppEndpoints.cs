@@ -132,13 +132,13 @@ public static class WebAppEndpoints
 
             var links = new List<string>();
             try {
-                var inbounds = System.Text.Json.JsonSerializer.Deserialize<List<dynamic>>(template.InboundsConfigJson);
+                var inbounds = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(template.InboundsConfigJson);
                 if (inbounds != null) {
                     foreach (var i in inbounds) {
-                        string proto = i.Protocol.ToString().ToLower();
+                        string proto = i.GetProperty("Protocol").GetString()?.ToLower() ?? "";
                         string name = Uri.EscapeDataString($"KoFF_{sub.Email}");
                         if (proto == "vless") {
-                            links.Add($"vless://{sub.Uuid}@{sub.ServerIp}:{i.Port}?security=reality&encryption=none&pbk={i.PublicKey}&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni={i.Sni}&sid={i.ShortId}#{name}");
+                            links.Add($"vless://{sub.Uuid}@{sub.ServerIp}:{i.GetProperty("Port").ToString()}?security=reality&encryption=none&pbk={i.GetProperty("PublicKey").GetString() ?? ""}&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni={i.GetProperty("Sni").GetString() ?? ""}&sid={i.GetProperty("ShortId").GetString() ?? ""}#{name}");
                         }
                     }
                 }
