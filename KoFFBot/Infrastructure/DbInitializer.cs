@@ -70,42 +70,60 @@ public static class DbInitializer
         if (connection.State != System.Data.ConnectionState.Open)
             connection.Open();
 
-        var model = dbContext.Model;
-        foreach (var entityType in model.GetEntityTypes())
+        // УМНЫЙ АЛГОРИТМ: Изолируем изменения в транзакции. Если ошибка - откатываем всё, БД не ломается.
+        using var transaction = connection.BeginTransaction();
+        try
         {
-            var tableName = entityType.GetTableName();
-            if (string.IsNullOrEmpty(tableName)) continue;
-
-            using var command = connection.CreateCommand();
-            command.CommandText = $"PRAGMA table_info(\"{tableName}\");";
-            using var reader = command.ExecuteReader();
-            var existingColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            while (reader.Read())
+            var model = dbContext.Model;
+            foreach (var entityType in model.GetEntityTypes())
             {
-                existingColumns.Add(reader.GetString(1));
-            }
-            reader.Close();
+                var tableName = entityType.GetTableName();
+                if (string.IsNullOrEmpty(tableName)) continue;
 
-            foreach (var property in entityType.GetProperties())
-            {
-                var columnName = property.GetColumnName(StoreObjectIdentifier.Table(tableName, null));
-                if (columnName != null && !existingColumns.Contains(columnName))
+                using var command = connection.CreateCommand();
+                command.CommandText = $"PRAGMA table_info(\"{tableName}\");";
+                command.Transaction = transaction;
+
+                using var reader = command.ExecuteReader();
+                var existingColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                while (reader.Read())
                 {
-                    Serilog.Log.Information("[DB-MIGRATE] Adding missing column {Column} to table {Table}", columnName, tableName);
-                    var columnType = property.GetColumnType();
-                    var defaultValue = property.GetDefaultValue() != null 
-                        ? $"DEFAULT '{property.GetDefaultValue()}'" 
-                        : (property.IsNullable ? "DEFAULT NULL" : "DEFAULT ''");
+                    existingColumns.Add(reader.GetString(1));
+                }
+                reader.Close();
 
-                    if (property.ClrType == typeof(int) || property.ClrType == typeof(long) || property.ClrType == typeof(bool))
-                        defaultValue = "DEFAULT 0";
+                foreach (var property in entityType.GetProperties())
+                {
+                    var columnName = property.GetColumnName(StoreObjectIdentifier.Table(tableName, null));
+                    if (columnName != null && !existingColumns.Contains(columnName))
+                    {
+                        Serilog.Log.Information("[DB-MIGRATE] Добавление колонки {Column} в таблицу {Table}", columnName, tableName);
 
-                    var alterSql = $"ALTER TABLE \"{tableName}\" ADD COLUMN \"{columnName}\" {columnType} {defaultValue};";
-                    using var alterCommand = connection.CreateCommand();
-                    alterCommand.CommandText = alterSql;
-                    try { alterCommand.ExecuteNonQuery(); } catch { /* Защита от дурака */ }
+                        // Строгий маппинг типов под SQLite 
+                        string columnType = property.ClrType == typeof(int) || property.ClrType == typeof(long) || property.ClrType == typeof(bool) ? "INTEGER" :
+                                            property.ClrType == typeof(DateTime) || property.ClrType == typeof(DateTime?) ? "TEXT" :
+                                            property.ClrType == typeof(double) || property.ClrType == typeof(float) ? "REAL" : "TEXT";
+
+                        var defaultValue = property.ClrType == typeof(bool) ? "DEFAULT 0" :
+                                           property.ClrType == typeof(int) || property.ClrType == typeof(long) ? "DEFAULT 0" :
+                                           property.GetDefaultValue() != null ? $"DEFAULT '{property.GetDefaultValue()}'" :
+                                           (property.IsNullable ? "DEFAULT NULL" : "DEFAULT ''");
+
+                        var alterSql = $"ALTER TABLE \"{tableName}\" ADD COLUMN \"{columnName}\" {columnType} {defaultValue};";
+
+                        using var alterCommand = connection.CreateCommand();
+                        alterCommand.CommandText = alterSql;
+                        alterCommand.Transaction = transaction;
+                        alterCommand.ExecuteNonQuery();
+                    }
                 }
             }
+            transaction.Commit();
+        }
+        catch (Exception ex)
+        {
+            transaction.Rollback();
+            Serilog.Log.Error($"[DB-MIGRATE-ERROR] Критический сбой расширения БД. Изменения отменены: {ex.Message}");
         }
     }
 }
