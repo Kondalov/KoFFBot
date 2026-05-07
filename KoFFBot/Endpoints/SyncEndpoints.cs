@@ -7,37 +7,40 @@ using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.IO;
+using System.Threading;
 
 namespace KoFFBot.Endpoints;
+
+public record ServerMigrationDto(string OldIp, string NewIp);
 
 public static class SyncEndpoints
 {
     public static void MapSyncEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/sync/pending", async (VpnDbContext db) => Results.Ok(await db.VpnSubscriptions.Where(s => s.SyncStatus == SyncStatus.PendingAdd || s.SyncStatus == SyncStatus.PendingUpdate).ToListAsync()));
+        app.MapGet("/api/sync/pending", async (VpnDbContext db, CancellationToken ct) =>
+            Results.Ok(await db.VpnSubscriptions
+                .Where(s => s.SyncStatus == SyncStatus.PendingAdd || s.SyncStatus == SyncStatus.PendingUpdate)
+                .ToListAsync(ct)));
 
-        app.MapPost("/api/sync/commit", async (CommitRequestDto request, VpnDbContext db) => {
+        app.MapPost("/api/sync/commit", async (CommitRequestDto request, VpnDbContext db, CancellationToken ct) => {
             int updated = await db.VpnSubscriptions
                 .Where(s => request.Uuids.Contains(s.Uuid))
-                .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.SyncStatus, SyncStatus.Synced));
+                .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.SyncStatus, SyncStatus.Synced), ct);
 
             return Results.Ok(new { message = $"Синхронизировано {updated} клиентов" });
         });
 
-        // FOOLPROOF: Используем встроенный Model Binding вместо ручного StreamReader
-        app.MapPost("/api/sync/traffic", async (List<TrafficSyncDto> trafficData, VpnDbContext db) => {
+        // FOOLPROOF: Токен отмены защищает от зависших (zombie) запросов при обрыве связи с панелью
+        app.MapPost("/api/sync/traffic", async (List<TrafficSyncDto> trafficData, VpnDbContext db, CancellationToken ct) => {
             if (trafficData == null || !trafficData.Any()) return Results.Ok();
 
-            // ИСПРАВЛЕНИЕ N+1: Выгружаем всех нужных пользователей одним SQL-запросом
             var incomingUuids = trafficData.Select(t => t.Uuid).Where(u => !string.IsNullOrEmpty(u)).ToList();
             var existingSubs = await db.VpnSubscriptions
                 .Where(s => incomingUuids.Contains(s.Uuid) || incomingUuids.Contains(s.Email))
-                .ToListAsync();
+                .ToListAsync(ct); // Передали CancellationToken
 
             foreach (var incoming in trafficData)
             {
-                // Поиск происходит мгновенно в оперативной памяти, а не в БД
                 var sub = existingSubs.FirstOrDefault(s => s.Uuid == incoming.Uuid)
                        ?? existingSubs.FirstOrDefault(s => s.Email == incoming.Uuid);
 
@@ -50,24 +53,24 @@ public static class SyncEndpoints
                 }
             }
 
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
             return Results.Ok();
         });
 
-        app.MapPost("/api/templates", async (ServerTemplate template, VpnDbContext db) => {
-            var existing = await db.ServerTemplates.FirstOrDefaultAsync(t => t.ServerIp == template.ServerIp);
+        app.MapPost("/api/templates", async (ServerTemplate template, VpnDbContext db, CancellationToken ct) => {
+            var existing = await db.ServerTemplates.FirstOrDefaultAsync(t => t.ServerIp == template.ServerIp, ct);
             if (existing != null)
             {
                 existing.CoreType = template.CoreType;
                 existing.InboundsConfigJson = template.InboundsConfigJson;
             }
             else db.ServerTemplates.Add(template);
-            await db.SaveChangesAsync();
+
+            await db.SaveChangesAsync(ct);
             return Results.Ok();
         });
 
-        // FOOLPROOF: Аналогичная оптимизация для Legacy Sync
-        app.MapPost("/api/legacy/sync", async (List<LegacyUserDto> legacyUsers, VpnDbContext db) => {
+        app.MapPost("/api/legacy/sync", async (List<LegacyUserDto> legacyUsers, VpnDbContext db, CancellationToken ct) => {
             if (legacyUsers == null || !legacyUsers.Any()) return Results.BadRequest("Invalid data");
 
             var deduplicatedUsers = legacyUsers
@@ -83,7 +86,7 @@ public static class SyncEndpoints
 
             var existingSubs = await db.VpnSubscriptions
                 .Where(s => incomingUuids.Contains(s.Uuid) || incomingEmails.Contains(s.Email))
-                .ToListAsync();
+                .ToListAsync(ct);
 
             foreach (var user in deduplicatedUsers)
             {
@@ -115,25 +118,44 @@ public static class SyncEndpoints
                 }
             }
 
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
             return Results.Ok();
         });
 
-        app.MapGet("/api/stats", async (VpnDbContext db) => Results.Ok(new { TotalUsers = await db.TelegramUsers.CountAsync() }));
+        app.MapGet("/api/stats", async (VpnDbContext db, CancellationToken ct) =>
+            Results.Ok(new { TotalUsers = await db.TelegramUsers.CountAsync(ct) }));
 
-        app.MapPost("/api/sync/pool", async (List<ReserveKeyDto> keys, VpnDbContext db) => {
+        app.MapPost("/api/sync/pool", async (List<ReserveKeyDto> keys, VpnDbContext db, CancellationToken ct) => {
             await db.VpnSubscriptions
                 .Where(s => s.TelegramId == 0 && s.Email.StartsWith("reserve_"))
-                .ExecuteDeleteAsync();
+                .ExecuteDeleteAsync(ct);
 
             foreach (var k in keys)
             {
                 db.VpnSubscriptions.Add(new VpnSubscription { Uuid = k.Uuid, TelegramId = 0, Email = $"reserve_{k.Uuid.Substring(0, 5)}", ServerIp = k.ServerIp, TrafficLimitBytes = k.TrafficLimitBytes, TrafficUsedBytes = 0, IsActive = true, MaxDevices = 2, ExpiryDate = DateTime.UtcNow.AddDays(3), SyncStatus = SyncStatus.Synced, LastModifiedAt = DateTime.UtcNow });
             }
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
             return Results.Ok();
         });
 
-        app.MapGet("/api/sync/pool/count", async (VpnDbContext db) => Results.Ok(new { ReserveCount = await db.VpnSubscriptions.CountAsync(s => s.TelegramId == 0 && s.Email.StartsWith("reserve_") && s.IsActive) }));
+        app.MapGet("/api/sync/pool/count", async (VpnDbContext db, CancellationToken ct) =>
+            Results.Ok(new { ReserveCount = await db.VpnSubscriptions.CountAsync(s => s.TelegramId == 0 && s.Email.StartsWith("reserve_") && s.IsActive, ct) }));
+
+        app.MapPost("/api/sync/migrate-server", async (ServerMigrationDto req, VpnDbContext db, CancellationToken ct) => {
+            if (string.IsNullOrWhiteSpace(req.OldIp) || string.IsNullOrWhiteSpace(req.NewIp))
+                return Results.BadRequest("IP адреса не могут быть пустыми");
+
+            if (req.OldIp == req.NewIp)
+                return Results.Ok(new { message = "IP адреса совпадают, миграция не требуется.", count = 0 });
+
+            int updatedCount = await db.VpnSubscriptions
+                .Where(s => s.ServerIp == req.OldIp)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(s => s.ServerIp, req.NewIp)
+                    .SetProperty(s => s.SyncStatus, SyncStatus.PendingUpdate)
+                    .SetProperty(s => s.LastModifiedAt, DateTime.UtcNow), ct); // Передали CancellationToken
+
+            return Results.Ok(new { message = $"Успешно перенесено {updatedCount} подписок.", count = updatedCount });
+        });
     }
 }
