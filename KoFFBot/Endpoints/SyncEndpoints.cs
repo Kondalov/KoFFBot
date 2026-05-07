@@ -25,24 +25,21 @@ public static class SyncEndpoints
             return Results.Ok(new { message = $"Синхронизировано {updated} клиентов" });
         });
 
-        app.MapPost("/api/sync/traffic", async (HttpContext context, VpnDbContext db) => {
-            string body = await new StreamReader(context.Request.Body).ReadToEndAsync();
-            await System.IO.File.WriteAllTextAsync("/opt/koffbot/Logs/last_traffic_body.json", body);
-
-            var trafficData = System.Text.Json.JsonSerializer.Deserialize<List<TrafficSyncDto>>(body, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        // FOOLPROOF: Используем встроенный Model Binding вместо ручного StreamReader
+        app.MapPost("/api/sync/traffic", async (List<TrafficSyncDto> trafficData, VpnDbContext db) => {
             if (trafficData == null || !trafficData.Any()) return Results.Ok();
+
+            // ИСПРАВЛЕНИЕ N+1: Выгружаем всех нужных пользователей одним SQL-запросом
+            var incomingUuids = trafficData.Select(t => t.Uuid).Where(u => !string.IsNullOrEmpty(u)).ToList();
+            var existingSubs = await db.VpnSubscriptions
+                .Where(s => incomingUuids.Contains(s.Uuid) || incomingUuids.Contains(s.Email))
+                .ToListAsync();
 
             foreach (var incoming in trafficData)
             {
-                // Умная синхронизация: пытаемся найти по UUID
-                var sub = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.Uuid == incoming.Uuid);
-
-                // Если по UUID не нашли, ищем по Email (для тех, у кого сменился UUID в панели)
-                if (sub == null && !string.IsNullOrEmpty(incoming.Uuid))
-                {
-                    // В случае если панель прислала Email (tg_ID) вместо UUID
-                    sub = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.Email == incoming.Uuid);
-                }
+                // Поиск происходит мгновенно в оперативной памяти, а не в БД
+                var sub = existingSubs.FirstOrDefault(s => s.Uuid == incoming.Uuid)
+                       ?? existingSubs.FirstOrDefault(s => s.Email == incoming.Uuid);
 
                 if (sub != null)
                 {
@@ -52,6 +49,7 @@ public static class SyncEndpoints
                     sub.LastModifiedAt = DateTime.UtcNow;
                 }
             }
+
             await db.SaveChangesAsync();
             return Results.Ok();
         });
@@ -68,15 +66,10 @@ public static class SyncEndpoints
             return Results.Ok();
         });
 
-        app.MapPost("/api/legacy/sync", async (HttpContext context, VpnDbContext db) => {
-            string body = await new StreamReader(context.Request.Body).ReadToEndAsync();
-            await System.IO.File.WriteAllTextAsync("/opt/koffbot/Logs/last_legacy_body.json", body);
+        // FOOLPROOF: Аналогичная оптимизация для Legacy Sync
+        app.MapPost("/api/legacy/sync", async (List<LegacyUserDto> legacyUsers, VpnDbContext db) => {
+            if (legacyUsers == null || !legacyUsers.Any()) return Results.BadRequest("Invalid data");
 
-            var legacyUsers = System.Text.Json.JsonSerializer.Deserialize<List<LegacyUserDto>>(body, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            if (legacyUsers == null) return Results.BadRequest("Invalid data");
-
-            // Умная дедупликация: если в панели случайно создались дубликаты с одинаковым Email (tg_ID), 
-            // мы берем только ту запись, у которой самая большая дата окончания (ExpiryDate).
             var deduplicatedUsers = legacyUsers
                 .Where(u => !string.IsNullOrEmpty(u.Email) && u.Email.StartsWith("tg_"))
                 .GroupBy(u => u.Email)
@@ -85,16 +78,17 @@ public static class SyncEndpoints
 
             deduplicatedUsers.AddRange(legacyUsers.Where(u => string.IsNullOrEmpty(u.Email) || !u.Email.StartsWith("tg_")));
 
+            var incomingUuids = deduplicatedUsers.Select(u => u.Uuid).ToList();
+            var incomingEmails = deduplicatedUsers.Select(u => u.Email).Where(e => !string.IsNullOrEmpty(e)).ToList();
+
+            var existingSubs = await db.VpnSubscriptions
+                .Where(s => incomingUuids.Contains(s.Uuid) || incomingEmails.Contains(s.Email))
+                .ToListAsync();
+
             foreach (var user in deduplicatedUsers)
             {
-                // Сначала ищем по UUID
-                var existing = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.Uuid == user.Uuid);
-
-                // Если не нашли по UUID, ищем по Email (т.к. email в формате tg_ID уникален)
-                if (existing == null && !string.IsNullOrEmpty(user.Email) && user.Email.StartsWith("tg_"))
-                {
-                    existing = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.Email == user.Email);
-                }
+                var existing = existingSubs.FirstOrDefault(s => s.Uuid == user.Uuid)
+                            ?? existingSubs.FirstOrDefault(s => !string.IsNullOrEmpty(user.Email) && user.Email.StartsWith("tg_") && s.Email == user.Email);
 
                 if (existing == null)
                 {
@@ -112,7 +106,6 @@ public static class SyncEndpoints
                 }
                 else
                 {
-                    // Обновляем всё, включая UUID если он изменился в панели
                     existing.Uuid = user.Uuid;
                     existing.ExpiryDate = user.ExpiryDate;
                     existing.TrafficLimitBytes = user.TrafficLimitBytes;
@@ -121,6 +114,7 @@ public static class SyncEndpoints
                     existing.LastModifiedAt = DateTime.UtcNow;
                 }
             }
+
             await db.SaveChangesAsync();
             return Results.Ok();
         });
