@@ -284,10 +284,11 @@ function loadProfile(isSilent = false) {
                     } else { dText.innerText = 'Истек'; dText.style.color = "var(--danger)"; tBar.style.width = '0%'; tBar.className = "progress-fill fill-danger"; }
                 } catch (e) { document.getElementById('daysLeft').innerText = "∞"; }
             } else { document.getElementById('daysLeft').innerText = "∞"; document.getElementById('expiryDateText').innerText = "Бессрочно"; document.getElementById('timeBar').style.width = '100%'; }
-            // Возвращаем старый, рабочий формат ссылки на порт 8080 по просьбе пользователя
-            window.vpnLinkToCopy = `https://link.partherhr.ru/${data.uuid || ''}`;
 
-            // БЕЗОПАСНАЯ ВСТАВКА (Защита от краша JS)
+            // === ИСПРАВЛЕНИЕ: Формируем динамическую ссылку из .env ===
+            const baseDomain = data.subDomain || "https://link.koffpanel.us";
+            window.vpnLinkToCopy = `${baseDomain}/${data.uuid || ''}`;
+
             const keyBox = document.getElementById('keyLinkText') || document.getElementById('keyLink');
             if (keyBox) {
                 keyBox.innerText = window.vpnLinkToCopy;
