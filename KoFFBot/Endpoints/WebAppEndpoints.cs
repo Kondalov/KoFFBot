@@ -10,6 +10,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using Telegram.Bot;
 using Telegram.Bot.Types.ReplyMarkups;
 using Serilog;
@@ -30,6 +31,9 @@ public static class WebAppEndpoints
             bool isAdmin = long.TryParse(adminIdStr, out long adminId) && tgId == adminId;
             var botIp = await KoFFBot.Infrastructure.IpHelper.GetPublicIpAsync();
 
+            // === УМНАЯ АРХИТЕКТУРА: Читаем домен подписки из .env файла ===
+            string subDomain = Environment.GetEnvironmentVariable("SUB_DOMAIN")?.TrimEnd('/') ?? "https://link.koffpanel.us";
+
             return Results.Ok(new
             {
                 TelegramId = user.TelegramId,
@@ -42,34 +46,36 @@ public static class WebAppEndpoints
                 Uuid = sub?.Uuid ?? "",
                 ExpiryDate = sub?.ExpiryDate,
                 IsAdmin = isAdmin,
-                GameSecret = ""
+                GameSecret = "",
+                SubDomain = subDomain // Передаем домен во фронтенд
             });
         });
 
-        app.MapPost("/api/webapp/generate", async (WebAppActionRequest req, VpnDbContext db, SubscriptionGenerator generator) => { 
-            var user = await db.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == req.TelegramId); 
-            if (user == null) return Results.BadRequest(); 
-            var existingSub = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.TelegramId == req.TelegramId && s.IsActive); 
-            if (existingSub != null) return Results.Ok(); 
-            int reserveCount = await db.VpnSubscriptions.CountAsync(s => s.TelegramId == 0 && s.IsActive); 
-            if (reserveCount == 0) return Results.Problem("Нет резервных серверов."); 
-            var (success, uuid, serverIp, err) = await generator.GenerateNewSubscriptionAsync(req.TelegramId, $"tg_{req.TelegramId}", CancellationToken.None); 
-            if (!success) return Results.Problem(err); 
-            return Results.Ok(); 
+        app.MapPost("/api/webapp/generate", async (WebAppActionRequest req, VpnDbContext db, SubscriptionGenerator generator) => {
+            var user = await db.TelegramUsers.FirstOrDefaultAsync(u => u.TelegramId == req.TelegramId);
+            if (user == null) return Results.BadRequest();
+            var existingSub = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.TelegramId == req.TelegramId && s.IsActive);
+            if (existingSub != null) return Results.Ok();
+            int reserveCount = await db.VpnSubscriptions.CountAsync(s => s.TelegramId == 0 && s.IsActive);
+            if (reserveCount == 0) return Results.Problem("Нет резервных серверов.");
+            var (success, uuid, serverIp, err) = await generator.GenerateNewSubscriptionAsync(req.TelegramId, $"tg_{req.TelegramId}", CancellationToken.None);
+            if (!success) return Results.Problem(err);
+            return Results.Ok();
         });
-        
-        app.MapGet("/api/webapp/inbox", async (long tgId, VpnDbContext db) => { 
-            var msgs = await db.SupportMessages.Where(m => m.TelegramId == tgId).OrderBy(m => m.CreatedAt).ToListAsync(); 
-            var unread = msgs.Where(m => m.IsFromAdmin && !m.IsRead).ToList(); 
-            foreach (var u in unread) u.IsRead = true; 
-            if (unread.Any()) await db.SaveChangesAsync(); 
-            return Results.Ok(msgs.Select(m => new { m.Id, m.Text, m.IsFromAdmin, CreatedAt = m.CreatedAt.ToString("HH:mm dd.MM") })); 
+
+        app.MapGet("/api/webapp/inbox", async (long tgId, VpnDbContext db) => {
+            var msgs = await db.SupportMessages.Where(m => m.TelegramId == tgId).OrderBy(m => m.CreatedAt).ToListAsync();
+            var unread = msgs.Where(m => m.IsFromAdmin && !m.IsRead).ToList();
+            foreach (var u in unread) u.IsRead = true;
+            if (unread.Any()) await db.SaveChangesAsync();
+            return Results.Ok(msgs.Select(m => new { m.Id, m.Text, m.IsFromAdmin, CreatedAt = m.CreatedAt.ToString("HH:mm dd.MM") }));
         });
-        
+
         app.MapGet("/api/webapp/inbox/unread", async (long tgId, VpnDbContext db) => {
             var count = await db.SupportMessages.CountAsync(m => m.TelegramId == tgId && m.IsFromAdmin && !m.IsRead);
             return Results.Json(new { unreadCount = count });
         });
+
         // === ДИАГНОСТИКА: Прием логов от клиентской части игры ===
         app.MapGet("/api/webapp/profile/LOG_{message}", (string message) => {
             Log.Information("[CLIENT_LOG] {Message}", Uri.UnescapeDataString(message).Replace("_", " "));
@@ -84,13 +90,13 @@ public static class WebAppEndpoints
 
             if (long.TryParse(adminIdStr, out long adminId))
             {
-                var kb = new InlineKeyboardMarkup(new[] { 
-                    new[] { InlineKeyboardButton.WithCallbackData("↩️ Ответить", $"reply_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("💰 Продлить", $"renew_{req.TelegramId}") }, 
-                    new[] { InlineKeyboardButton.WithCallbackData("💳 Мои реквизиты", $"req_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("🙈 Скрыть", $"hide_{req.TelegramId}") } 
+                var kb = new InlineKeyboardMarkup(new[] {
+                    new[] { InlineKeyboardButton.WithCallbackData("↩️ Ответить", $"reply_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("💰 Продлить", $"renew_{req.TelegramId}") },
+                    new[] { InlineKeyboardButton.WithCallbackData("💳 Мои реквизиты", $"req_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("🙈 Скрыть", $"hide_{req.TelegramId}") }
                 });
                 string safeName = System.Net.WebUtility.HtmlEncode(user.FirstName ?? "Без имени");
                 string adminText = $"🛒 <b>ЗАЯВКА НА ТАРИФ</b>\nОт: {safeName}\nID: <code>{req.TelegramId}</code>\nТариф: <b>{req.TariffName}</b>";
-                try { await bot.SendMessage(chatId: adminId, text: adminText, parseMode: Telegram.Bot.Types.Enums.ParseMode.Html, replyMarkup: kb); } 
+                try { await bot.SendMessage(chatId: adminId, text: adminText, parseMode: Telegram.Bot.Types.Enums.ParseMode.Html, replyMarkup: kb); }
                 catch (Exception ex) { Log.Error(ex, "Ошибка отправки в ТГ"); }
             }
             return Results.Ok();
@@ -107,45 +113,47 @@ public static class WebAppEndpoints
 
             if (long.TryParse(adminIdStr, out long adminId))
             {
-                var kb = new InlineKeyboardMarkup(new[] { 
-                    new[] { InlineKeyboardButton.WithCallbackData("↩️ Ответить", $"reply_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("💰 Продлить", $"renew_{req.TelegramId}") }, 
-                    new[] { InlineKeyboardButton.WithCallbackData("💳 Мои реквизиты", $"req_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("🙈 Скрыть", $"hide_{req.TelegramId}") } 
+                var kb = new InlineKeyboardMarkup(new[] {
+                    new[] { InlineKeyboardButton.WithCallbackData("↩️ Ответить", $"reply_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("💰 Продлить", $"renew_{req.TelegramId}") },
+                    new[] { InlineKeyboardButton.WithCallbackData("💳 Мои реквизиты", $"req_{req.TelegramId}"), InlineKeyboardButton.WithCallbackData("🙈 Скрыть", $"hide_{req.TelegramId}") }
                 });
                 string safeName = System.Net.WebUtility.HtmlEncode(user.FirstName ?? "Без имени");
                 string safeText = System.Net.WebUtility.HtmlEncode(req.Text);
                 string adminText = $"💬 <b>НОВОЕ СООБЩЕНИЕ</b>\nОт: {safeName}\nID: <code>{req.TelegramId}</code>\n\nТекст: {safeText}";
-                try { await bot.SendMessage(chatId: adminId, text: adminText, parseMode: Telegram.Bot.Types.Enums.ParseMode.Html, replyMarkup: kb); } 
+                try { await bot.SendMessage(chatId: adminId, text: adminText, parseMode: Telegram.Bot.Types.Enums.ParseMode.Html, replyMarkup: kb); }
                 catch (Exception ex) { Log.Error(ex, "Ошибка отправки в ТГ"); }
             }
             return Results.Ok();
         });
 
-        // === НОВЫЙ ЭНДПОИНТ: ВСТРОЕННЫЙ СЕРВЕР ПОДПИСОК (АПРЕЛЬ 2026) ===
-        // Позволяет Hiddify и другим клиентам получать конфиг напрямую из бота
         app.MapGet("/sub/{uuid}", async (string uuid, VpnDbContext db) => {
             var sub = await db.VpnSubscriptions.FirstOrDefaultAsync(s => s.Uuid == uuid && s.IsActive);
             if (sub == null) return Results.NotFound("Подписка не найдена или неактивна.");
 
-            // Получаем шаблон сервера для генерации ссылок
             var template = await db.ServerTemplates.FirstOrDefaultAsync(t => t.ServerIp == sub.ServerIp);
             if (template == null) return Results.NotFound("Конфигурация сервера еще не синхронизирована.");
 
             var links = new List<string>();
-            try {
+            try
+            {
                 var inbounds = System.Text.Json.JsonSerializer.Deserialize<List<System.Text.Json.JsonElement>>(template.InboundsConfigJson);
-                if (inbounds != null) {
-                    foreach (var i in inbounds) {
+                if (inbounds != null)
+                {
+                    foreach (var i in inbounds)
+                    {
                         string proto = i.GetProperty("Protocol").GetString()?.ToLower() ?? "";
                         string name = Uri.EscapeDataString($"KoFF_{sub.Email}");
-                        if (proto == "vless") {
+                        if (proto == "vless")
+                        {
                             links.Add($"vless://{sub.Uuid}@{sub.ServerIp}:{i.GetProperty("Port").ToString()}?security=reality&encryption=none&pbk={i.GetProperty("PublicKey").GetString() ?? ""}&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni={i.GetProperty("Sni").GetString() ?? ""}&sid={i.GetProperty("ShortId").GetString() ?? ""}#{name}");
                         }
                     }
                 }
-            } catch { }
+            }
+            catch { }
 
             if (!links.Any()) return Results.NotFound("Нет доступных протоколов.");
-            
+
             string base64Sub = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", links)));
             return Results.Text(base64Sub, "text/plain");
         });
