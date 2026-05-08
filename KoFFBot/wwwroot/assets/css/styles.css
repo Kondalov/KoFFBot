@@ -178,6 +178,10 @@ body {
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     box-shadow: inset 0 0 20px rgba(255,255,255,0.01);
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
 }
 
 h1, h2 {
@@ -373,6 +377,8 @@ p {
     line-height: 1.4;
     position: relative;
     word-wrap: break-word;
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
 }
 
 .msg-admin {

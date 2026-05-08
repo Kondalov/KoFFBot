@@ -46,14 +46,20 @@ public class GameService
         }
         else
         {
-            // === AUTO-REPAIR: Исправляем последствия бага с рассинхроном сигнатуры ===
-            if (profile.IsBanned && profile.BanReason == "Нарушение целостности данных (Античит).")
+            // === ИСПРАВЛЕНИЕ: Расширенный AUTO-REPAIR для снятия ложных банов ===
+            // Автоматически разблокируем пользователя, если он пострадал от багов подписи или рассинхрона времени
+            bool needsRepair = profile.IsBanned &&
+                               (profile.BanReason == "Нарушение целостности данных (Античит)." ||
+                                profile.BanReason == "Повреждение рекорда (Античит)." ||
+                                profile.BanReason == "SpeedHack detected (TimeLock Limit Exceeded).");
+
+            if (needsRepair)
             {
                 profile.IsBanned = false;
                 profile.BanReason = string.Empty;
                 profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
                 await _dbContext.SaveChangesAsync(ct);
-                _logger.LogInformation("Профиль {TelegramId} успешно восстановлен после сбоя античита.", telegramId);
+                _logger.LogInformation("Профиль {TelegramId} успешно восстановлен после ложного срабатывания античита.", telegramId);
             }
 
             if (isAdmin && profile.IsBanned)
@@ -112,12 +118,12 @@ public class GameService
         double elapsedSeconds = (DateTime.UtcNow - profile.CurrentGameStartTime).TotalSeconds;
         if (elapsedSeconds < 1) elapsedSeconds = 1;
 
+        // === ИСПРАВЛЕНИЕ 1: Мягкий отказ вместо пермабана при SpeedHack ===
         if (!isAdmin && (score / elapsedSeconds) > 150)
         {
-            profile.IsBanned = true;
-            profile.BanReason = "SpeedHack detected (TimeLock Limit Exceeded).";
-            await _dbContext.SaveChangesAsync(ct);
-            return (false, "Обнаружена аномальная скорость. Аккаунт заблокирован.");
+            _logger.LogWarning("[Античит] Аномальная скорость у {TelegramId}. Очки: {Score}, Время: {Time}s. Рекорд отклонен.", telegramId, score, elapsedSeconds);
+            // Возвращаем false, но НЕ баним намертво. Защищает честных игроков при потере пакетов или ретраях клиента.
+            return (false, "Результат не засчитан: подозрение на рассинхронизацию времени.");
         }
 
         var record = await _dbContext.LeaderboardRecords.FirstOrDefaultAsync(r => r.TelegramId == telegramId, ct);
@@ -129,14 +135,20 @@ public class GameService
         }
         else if (score > record.MaxScore)
         {
+            // === ИСПРАВЛЕНИЕ 2: Auto-Repair подписи рекорда ===
             if (!AntiCheatSigner.VerifySignature(telegramId, record.MaxScore, record.ScoreSignature))
             {
-                profile.IsBanned = true; profile.BanReason = "Повреждение рекорда (Античит).";
-                await _dbContext.SaveChangesAsync(ct); return (false, "Ошибка целостности данных.");
+                _logger.LogWarning("[Античит] Подпись рекорда повреждена у {TelegramId}. Выполняется Auto-Repair.", telegramId);
+                // Восстанавливаем подпись вместо выдачи бана
+                record.ScoreSignature = AntiCheatSigner.GenerateSignature(telegramId, record.MaxScore);
             }
-            record.MaxScore = score; record.AchievedAt = DateTime.UtcNow; record.ScoreSignature = AntiCheatSigner.GenerateSignature(telegramId, score);
+
+            record.MaxScore = score;
+            record.AchievedAt = DateTime.UtcNow;
+            record.ScoreSignature = AntiCheatSigner.GenerateSignature(telegramId, score);
         }
-        await _dbContext.SaveChangesAsync(ct); return (true, "Результат сохранен!");
+        await _dbContext.SaveChangesAsync(ct);
+        return (true, "Результат сохранен!");
     }
 
     public async Task<(bool Success, string Message, int? NewEnergy)> ProcessBossVictoryAsync(long telegramId, CancellationToken ct)
