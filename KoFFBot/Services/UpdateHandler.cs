@@ -86,6 +86,28 @@ public class UpdateHandler : IUpdateHandler
             //var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://3d34096cff96f0.lhr.life" }) } };
             await botClient.SendMessage(chatId: message.Chat.Id, text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение.", replyMarkup: new InlineKeyboardMarkup(buttons), cancellationToken: cancellationToken);
         }
+
+        if (message.Text.StartsWith("/broadcast"))
+        {
+            string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
+            if (string.IsNullOrEmpty(adminIdStr) || user.Id.ToString() != adminIdStr)
+            {
+                Log.Warning("[SECURITY] Попытка рассылки от не-админа: {UserId}", user.Id);
+                return;
+            }
+
+            string broadcastText = message.Text.Replace("/broadcast", "").Trim();
+            if (string.IsNullOrWhiteSpace(broadcastText))
+            {
+                await botClient.SendMessage(chatId: message.Chat.Id, text: "❌ Введите текст для рассылки: `/broadcast Текст сообщения`", parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
+                return;
+            }
+
+            // Запускаем рассылку в фоновом режиме (Fire-and-forget с новым Scope)
+            _ = Task.Run(async () => await ExecuteBroadcastAsync(broadcastText, user.Id), CancellationToken.None);
+
+            await botClient.SendMessage(chatId: message.Chat.Id, text: "🚀 *Рассылка запущена!*\nСообщения будут доставлены всем пользователям в Inbox и Telegram.", parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
+        }
     }
 
     private async Task ProcessReferralAsync(ITelegramBotClient botClient, VpnDbContext dbContext, long invitedId, string startParam, CancellationToken ct)
@@ -271,6 +293,84 @@ public class UpdateHandler : IUpdateHandler
             await dbContext.SaveChangesAsync(ct);
         }
         return dbUser;
+    }
+
+    private async Task ExecuteBroadcastAsync(string text, long adminId)
+    {
+        Log.Information("[BROADCAST] Запуск массовой рассылки от админа {AdminId}", adminId);
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<VpnDbContext>();
+        var bot = scope.ServiceProvider.GetRequiredService<ITelegramBotClient>();
+
+        try
+        {
+            var userIds = await db.TelegramUsers.Select(u => u.TelegramId).ToListAsync();
+            int total = userIds.Count;
+            int successCount = 0;
+            int failCount = 0;
+
+            Log.Information("[BROADCAST] Начинаем рассылку для {Count} пользователей", total);
+
+            // 1. Массовое добавление в Inbox (батчами по 100 для стабильности SQLite)
+            foreach (var batch in userIds.Chunk(100))
+            {
+                foreach (var userId in batch)
+                {
+                    db.SupportMessages.Add(new SupportMessage
+                    {
+                        TelegramId = userId,
+                        Text = text,
+                        IsFromAdmin = true,
+                        IsRead = false,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+                await db.SaveChangesAsync();
+            }
+
+            // 2. Рассылка в Telegram с соблюдением лимитов (Smart Rate Limiting)
+            foreach (var userId in userIds)
+            {
+                try
+                {
+                    await bot.SendMessage(
+                        chatId: userId,
+                        text: $"📢 *ОБЪЯВЛЕНИЕ*\n\n{text}\n\n_Сообщение также доступно в вашем Inbox в приложении._",
+                        parseMode: ParseMode.Markdown
+                    );
+                    successCount++;
+                }
+                catch (Telegram.Bot.Exceptions.ApiRequestException ex) when (ex.ErrorCode == 429)
+                {
+                    int retryAfter = ex.Parameters?.RetryAfter ?? 10;
+                    Log.Warning("[BROADCAST] Rate limit hit! Waiting {Seconds}s", retryAfter);
+                    await Task.Delay(retryAfter * 1000);
+                    try 
+                    { 
+                        await bot.SendMessage(chatId: userId, text: text, parseMode: ParseMode.Markdown); 
+                        successCount++; 
+                    } 
+                    catch { failCount++; }
+                }
+                catch (Exception ex)
+                {
+                    failCount++;
+                    Log.Debug("[BROADCAST] Пользователь {UserId} недоступен: {Msg}", userId, ex.Message);
+                }
+
+                // Пауза 35мс для соблюдения лимита Telegram (30 сообщений в секунду)
+                await Task.Delay(35);
+            }
+
+            Log.Information("[BROADCAST] Рассылка завершена. Успешно: {Success}, Ошибок: {Fail}", successCount, failCount);
+            await bot.SendMessage(chatId: adminId, text: $"🏁 *Рассылка завершена!*\n✅ Успешно: {successCount}\n❌ Ошибок: {failCount}", parseMode: ParseMode.Markdown);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "[BROADCAST] КРИТИЧЕСКАЯ ОШИБКА РАССЫЛКИ");
+            try { await bot.SendMessage(chatId: adminId, text: "❌ Критическая ошибка при выполнении рассылки."); } catch { }
+        }
     }
 
     public Task HandleErrorAsync(ITelegramBotClient b, Exception e, HandleErrorSource s, CancellationToken c) => Task.CompletedTask;
