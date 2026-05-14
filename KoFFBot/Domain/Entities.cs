@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel.DataAnnotations;
 
 namespace KoFFBot.Domain;
@@ -76,7 +76,7 @@ public sealed record GameProfile
     [Key]
     public long TelegramId { get; set; }
 
-    public int CurrentEnergy { get; set; } = 50;
+    public int CurrentEnergy { get; set; } = 10;
     public DateTime LastEnergyUpdate { get; set; } = DateTime.UtcNow;
 
     public int BossKills { get; set; } = 0;
