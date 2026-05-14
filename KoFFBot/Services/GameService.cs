@@ -35,7 +35,7 @@ public class GameService
             profile = new GameProfile
             {
                 TelegramId = telegramId,
-                CurrentEnergy = 50,
+                CurrentEnergy = 10,
                 LastEnergyUpdate = DateTime.UtcNow,
                 BossKills = 0,
                 LastDailyBonusDate = DateTime.MinValue
@@ -310,12 +310,23 @@ public class GameService
         if (profile.LastDailyBonusDate.Date >= DateTime.UtcNow.Date)
             return (false, "Вы уже получали бонус сегодня. Возвращайтесь завтра!", profile.CurrentEnergy);
 
-        profile.CurrentEnergy += 5;
+        // Умное распределение вероятностей (1-100)
+        var random = new Random();
+        int roll = random.Next(1, 101);
+        int reward = 1;
+
+        if (roll <= 40) reward = 1;      // 40% шанс
+        else if (roll <= 70) reward = 2; // 30% шанс
+        else if (roll <= 90) reward = 3; // 20% шанс
+        else if (roll <= 98) reward = 4; // 8% шанс (Редко)
+        else reward = 5;                 // 2% шанс (Очень редко)
+
+        profile.CurrentEnergy += reward;
         profile.LastDailyBonusDate = DateTime.UtcNow;
         profile.EnergySignature = AntiCheatSigner.GenerateSignature(telegramId, profile.CurrentEnergy);
 
         await _dbContext.SaveChangesAsync(ct);
-        return (true, "Ежедневный бонус +5 ⚡ успешно начислен!", profile.CurrentEnergy);
+        return (true, $"Ежедневный бонус +{reward} ⚡ успешно начислен!", profile.CurrentEnergy);
     }
 
     public async Task<(bool Success, string Message, int NewEnergy)> ClaimAdvancedBonusAsync(long telegramId, string bonusType, CancellationToken ct)
