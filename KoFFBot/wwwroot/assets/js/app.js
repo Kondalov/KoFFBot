@@ -200,7 +200,7 @@ function buyTariff(name, price) {
 window.buyTariff = buyTariff;
 
 function showRefLink() {
-    const link = `https://t.me/VPNNewsEvryDay_bot?start=${window.userId}`; const box = document.getElementById('refLink'); box.innerText = link;
+    const link = `https://t.me/KoffAi_Bot?start=${window.userId}`; const box = document.getElementById('refLink'); box.innerText = link;
     document.getElementById('refContainer').style.display = 'block'; copyTextToClipboard(link, "✅ Реферальная ссылка скопирована!");
 }
 window.showRefLink = showRefLink;
