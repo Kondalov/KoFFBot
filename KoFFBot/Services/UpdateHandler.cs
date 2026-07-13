@@ -211,7 +211,7 @@ public class UpdateHandler : IUpdateHandler
         dbContext.SupportMessages.Add(new SupportMessage { TelegramId = targetId, Text = requisites, IsFromAdmin = true, IsRead = false, CreatedAt = DateTime.UtcNow });
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        await botClient.SendMessage(chatId: targetId, text: "💳 *Вам отправлены реквизиты!*", parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
+        await botClient.SendMessage(chatId: targetId, text: "💳 *Реквизиты для оплаты:\r\nОплата по номеру телефона +7 (909) 010-04-73 (Сбербанк).*", parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
         await botClient.AnswerCallbackQuery(callbackQuery.Id, "Реквизиты отправлены!", cancellationToken: cancellationToken);
     }
 
