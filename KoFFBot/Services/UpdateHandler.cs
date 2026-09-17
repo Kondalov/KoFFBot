@@ -72,6 +72,47 @@ public class UpdateHandler : IUpdateHandler
         // Авто-регистрация/обновление пользователя в БД
         var dbUser = await GetOrCreateUserAsync(dbContext, user, cancellationToken);
 
+        string trimmedText = message.Text.Trim();
+
+        // Проверка кодового слова для согласования в банке / эквайринге
+        if (string.Equals(trimmedText, "pay", StringComparison.OrdinalIgnoreCase) || string.Equals(trimmedText, "/pay", StringComparison.OrdinalIgnoreCase))
+        {
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: "✅ *Кодовое слово проверки:* `pay`\nСервис активен и функционирует в штатном режиме.",
+                parseMode: ParseMode.Markdown,
+                cancellationToken: cancellationToken);
+            return;
+        }
+
+        // Юридическая документация и правила
+        if (trimmedText.StartsWith("/rules", StringComparison.OrdinalIgnoreCase) || trimmedText.StartsWith("/terms", StringComparison.OrdinalIgnoreCase))
+        {
+            var docButtons = new InlineKeyboardMarkup(new[]
+            {
+                new[] { InlineKeyboardButton.WithUrl("📜 Политика конфиденциальности", "https://teletype.in/@hiko1ay/HHSPLjRwZ4Z") },
+                new[] { InlineKeyboardButton.WithUrl("📋 Пользовательское соглашение", "https://teletype.in/@hiko1ay/8BeLLK6zIr8") },
+                new[] { InlineKeyboardButton.WithCallbackData("✉️ Контакты поддержки", "show_support") }
+            });
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: "📄 *Юридическая документация и правила сервиса:*\n\nОзнакомьтесь с условиями предоставления услуг и политикой обработки данных по ссылкам ниже.",
+                replyMarkup: docButtons,
+                parseMode: ParseMode.Markdown,
+                cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (trimmedText.StartsWith("/support", StringComparison.OrdinalIgnoreCase))
+        {
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: "✉️ *Служба поддержки сервиса:*\nEmail: `GeckoNetwork@proton.me`\n\nТакже вы можете задать вопрос администратору через раздел «Инбокс» в приложении KoFFPanel.",
+                parseMode: ParseMode.Markdown,
+                cancellationToken: cancellationToken);
+            return;
+        }
+
         if (message.Text.StartsWith("/start"))
         {
             var parts = message.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -82,9 +123,25 @@ public class UpdateHandler : IUpdateHandler
 
             string webAppUrl = Environment.GetEnvironmentVariable("WEBAPP_URL")?.Trim() ?? "https://gecko.makeup";
             webAppUrl = $"{webAppUrl}?t={DateTime.UtcNow.Ticks}";
-            var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = webAppUrl }) } };
-            //var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://3d34096cff96f0.lhr.life" }) } };
-            await botClient.SendMessage(chatId: message.Chat.Id, text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение.", replyMarkup: new InlineKeyboardMarkup(buttons), cancellationToken: cancellationToken);
+            var buttons = new List<InlineKeyboardButton[]>
+            {
+                new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = webAppUrl }) },
+                new[]
+                {
+                    InlineKeyboardButton.WithUrl("📜 Политика", "https://teletype.in/@hiko1ay/HHSPLjRwZ4Z"),
+                    InlineKeyboardButton.WithUrl("📋 Соглашение", "https://teletype.in/@hiko1ay/8BeLLK6zIr8")
+                },
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData("✉️ Поддержка", "show_support"),
+                    InlineKeyboardButton.WithCallbackData("🏷️ Тарифы", "show_tariffs")
+                }
+            };
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение, либо ознакомьтесь с информацией о сервисе и тарифах.",
+                replyMarkup: new InlineKeyboardMarkup(buttons),
+                cancellationToken: cancellationToken);
         }
 
         if (message.Text.StartsWith("/broadcast"))
@@ -171,6 +228,38 @@ public class UpdateHandler : IUpdateHandler
         string data = callbackQuery.Data ?? "";
 
         Log.Debug("[КНОПКА] Пользователь {UserId} нажал кнопку: '{Data}'", user.Id, data);
+
+        // Публичные кнопки для пользователей и модерации банков
+        if (data == "show_support")
+        {
+            await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
+            await botClient.SendMessage(
+                chatId: chatId,
+                text: "✉️ *Служба поддержки сервиса:*\nEmail: `GeckoNetwork@proton.me`\n\nТакже вы можете написать напрямую в чат поддержки через раздел «Инбокс» в KoFFPanel.",
+                parseMode: ParseMode.Markdown,
+                cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (data == "show_tariffs")
+        {
+            await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
+            string tariffsInfo = "🏷️ *Актуальные тарифы и стоимость услуг:*\n\n" +
+                                 "• ⭐ *Протокол «Стандарт»* (30 дней + 100⚡) — *249 ₽*\n" +
+                                 "• 🔥 *Протокол «Хакер»* (90 дней + 350⚡) — *642 ₽*\n" +
+                                 "• 💎 *Протокол «Призрак»* (180 дней + 1000⚡) — *1100 ₽*\n\n" +
+                                 "⚡ *Энергоблоки:*\n" +
+                                 "• 🔋 Малый (+100⚡) — *50 ₽*\n" +
+                                 "• ⚡ Средний (+300⚡) — *130 ₽*\n" +
+                                 "• ☢️ Макс (+1000⚡) — *350 ₽*\n\n" +
+                                 "Оформить доступ можно внутри приложения KoFFPanel во вкладке «Тарифы».";
+            await botClient.SendMessage(
+                chatId: chatId,
+                text: tariffsInfo,
+                parseMode: ParseMode.Markdown,
+                cancellationToken: cancellationToken);
+            return;
+        }
 
         string? adminIdStr = Environment.GetEnvironmentVariable("ADMIN_TG_ID")?.Trim('"', '\'', ' ');
         if (!string.IsNullOrEmpty(adminIdStr) && user.Id.ToString() != adminIdStr)

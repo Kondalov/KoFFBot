@@ -1,4 +1,4 @@
-﻿// --- ИГРОВОЙ ДВИЖОК ---
+// --- ИГРОВОЙ ДВИЖОК ---
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 const gridSize = 15; const tileCount = 20;
@@ -565,7 +565,7 @@ function drawGame() {
     ctx.lineTo(fx - gridSize / 2 + 2, fy); // Лево
     ctx.fill();
 
-    // DPI-Система (Ранее CDN/Красная угроза) - Отрисовка в виде шипованного блока
+    // Фаервол-система (Препятствие) - Отрисовка в виде защитного блока
     ctx.fillStyle = '#ff4444';
     ctx.shadowColor = '#ff4444';
     ctx.shadowBlur = 15;
@@ -573,7 +573,7 @@ function drawGame() {
     let cy = cdn.y * gridSize + 2;
     let cs = gridSize - 4;
     ctx.fillRect(cx, cy, cs, cs);
-    // Внутренний крест для DPI
+    // Внутренний крест для Фаервола
     ctx.fillStyle = '#ffffff';
     ctx.shadowBlur = 0;
     ctx.fillRect(cx + cs / 2 - 1, cy + 2, 2, cs - 4);

@@ -730,63 +730,155 @@
     </div>
 
     <div id="tab-guide" class="tab-content">
-        <div class="glass-card" style="padding: 24px;">
-            <h1 style="margin-bottom: 20px;">Инструкции</h1>
+        <!-- Окно "Важно" -->
+        <div class="glass-card collapsible-card" id="importantCard" style="padding: 20px 24px; margin-bottom: 20px;">
+            <div class="card-collapse-header" onclick="toggleCardCollapse('importantContent', this)">
+                <h1 style="margin: 0; font-size: 26px;">Важно</h1>
+                <button class="card-toggle-btn active" aria-label="Свернуть окно Важно" type="button">
+                    <svg class="toggle-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+            </div>
 
-            <div class="accordion" id="guideAccordion">
-                <!-- Android -->
-                <div class="accordion-item" id="guide-android">
-                    <button class="accordion-header" onclick="toggleAccordion(this)">
-                        <div class="header-left">
-                            <span class="icon">🤖</span> Android
+            <div class="collapsible-body active" id="importantContent">
+                <!-- Юридические документы и Поддержка -->
+                <div class="important-links-group" style="display: flex; flex-direction: column; gap: 10px; margin-top: 18px;">
+                    <a href="https://teletype.in/@hiko1ay/HHSPLjRwZ4Z" target="_blank" class="btn-legal" onclick="handleLinkClick(event)">
+                        <div class="btn-legal-left">
+                            <span class="btn-legal-icon">📜</span>
+                            <span class="btn-legal-text">Политика конфиденциальности</span>
                         </div>
-                        <span class="arrow">▼</span>
-                    </button>
-                    <div class="accordion-content">
-                        <p class="content-text">Подробная инструкция по настройке и подключению для Android устройств.</p>
-                        <a href="https://teletype.in/@hiko1ay/Zm0vBftJ4lQ" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                        <span class="btn-legal-arrow">↗</span>
+                    </a>
+
+                    <a href="https://teletype.in/@hiko1ay/8BeLLK6zIr8" target="_blank" class="btn-legal" onclick="handleLinkClick(event)">
+                        <div class="btn-legal-left">
+                            <span class="btn-legal-icon">📋</span>
+                            <span class="btn-legal-text">Пользовательское соглашение</span>
+                        </div>
+                        <span class="btn-legal-arrow">↗</span>
+                    </a>
+
+                    <div class="btn-legal" onclick="copySupportEmail(event)">
+                        <div class="btn-legal-left">
+                            <span class="btn-legal-icon">✉️</span>
+                            <div style="text-align: left;">
+                                <span class="btn-legal-text" style="display: block;">Поддержка</span>
+                                <span class="btn-legal-sub">GeckoNetwork@proton.me</span>
+                            </div>
+                        </div>
+                        <span class="btn-legal-copy" title="Копировать почту">📋</span>
                     </div>
                 </div>
 
-                <!-- iOS -->
-                <div class="accordion-item" id="guide-ios">
-                    <button class="accordion-header" onclick="toggleAccordion(this)">
-                        <div class="header-left">
-                            <span class="icon">🍎</span> iOS
+                <!-- Блок актуальных тарифов -->
+                <div class="important-tariffs-block" style="margin-top: 20px;">
+                    <div class="tariffs-block-title">
+                        <span>🏷️</span> Актуальные тарифы и цены
+                    </div>
+                    <div class="tariffs-list">
+                        <div class="tariff-item-row">
+                            <div class="tariff-item-name">⭐ Протокол «Стандарт» <span class="tariff-item-sub">(30 дн. + 100⚡)</span></div>
+                            <div class="tariff-item-price">249 ₽</div>
                         </div>
-                        <span class="arrow">▼</span>
-                    </button>
-                    <div class="accordion-content">
-                        <p class="content-text">Подробная инструкция по настройке и подключению для iOS устройств.</p>
-                        <a href="https://teletype.in/@hiko1ay/U0jUDCV7inF#ywQ2" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                        <div class="tariff-item-row">
+                            <div class="tariff-item-name">🔥 Протокол «Хакер» <span class="tariff-item-sub">(90 дн. + 350⚡)</span></div>
+                            <div class="tariff-item-price">642 ₽</div>
+                        </div>
+                        <div class="tariff-item-row">
+                            <div class="tariff-item-name">💎 Протокол «Призрак» <span class="tariff-item-sub">(180 дн. + 1000⚡)</span></div>
+                            <div class="tariff-item-price">1100 ₽</div>
+                        </div>
+                        <div class="tariff-item-row">
+                            <div class="tariff-item-name">🔋 Энергоблок Малый <span class="tariff-item-sub">(+100⚡)</span></div>
+                            <div class="tariff-item-price">50 ₽</div>
+                        </div>
+                        <div class="tariff-item-row">
+                            <div class="tariff-item-name">⚡ Энергоблок Средний <span class="tariff-item-sub">(+300⚡)</span></div>
+                            <div class="tariff-item-price">130 ₽</div>
+                        </div>
+                        <div class="tariff-item-row">
+                            <div class="tariff-item-name">☢️ Энергоблок Макс <span class="tariff-item-sub">(+1000⚡)</span></div>
+                            <div class="tariff-item-price">350 ₽</div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Windows -->
-                <div class="accordion-item" id="guide-windows">
-                    <button class="accordion-header" onclick="toggleAccordion(this)">
-                        <div class="header-left">
-                            <span class="icon">🪟</span> Windows
-                        </div>
-                        <span class="arrow">▼</span>
-                    </button>
-                    <div class="accordion-content">
-                        <p class="content-text">Подробная инструкция по настройке и подключению для Windows.</p>
-                        <a href="https://teletype.in/@hiko1ay/A0ZdIZPRHr9" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
-                    </div>
+                <!-- Проверочный код для модерации эквайринга -->
+                <div class="verification-badge-container">
+                    <span class="verification-badge">Код проверки: <b>pay</b></span>
                 </div>
+            </div>
+        </div>
 
-                <!-- Mac -->
-                <div class="accordion-item" id="guide-macos">
-                    <button class="accordion-header" onclick="toggleAccordion(this)">
-                        <div class="header-left">
-                            <span class="icon">💻</span> Mac
+        <!-- Окно "Инструкции" -->
+        <div class="glass-card collapsible-card" id="guideCard" style="padding: 20px 24px;">
+            <div class="card-collapse-header" onclick="toggleCardCollapse('guideContent', this)">
+                <h1 style="margin: 0; font-size: 26px;">Инструкции</h1>
+                <button class="card-toggle-btn active" aria-label="Свернуть окно Инструкции" type="button">
+                    <svg class="toggle-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="collapsible-body active" id="guideContent">
+                <div class="accordion" id="guideAccordion" style="margin-top: 18px;">
+                    <!-- Android -->
+                    <div class="accordion-item" id="guide-android">
+                        <button class="accordion-header" onclick="toggleAccordion(this)">
+                            <div class="header-left">
+                                <span class="icon">🤖</span> Android
+                            </div>
+                            <span class="arrow">▼</span>
+                        </button>
+                        <div class="accordion-content">
+                            <p class="content-text">Подробная инструкция по настройке и подключению для Android устройств.</p>
+                            <a href="https://teletype.in/@hiko1ay/Zm0vBftJ4lQ" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
                         </div>
-                        <span class="arrow">▼</span>
-                    </button>
-                    <div class="accordion-content">
-                        <p class="content-text">Подробная инструкция по настройке и подключению для Mac OS.</p>
-                        <a href="https://teletype.in/@hiko1ay/A0ZdIZPRHr9" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                    </div>
+
+                    <!-- iOS -->
+                    <div class="accordion-item" id="guide-ios">
+                        <button class="accordion-header" onclick="toggleAccordion(this)">
+                            <div class="header-left">
+                                <span class="icon">🍎</span> iOS
+                            </div>
+                            <span class="arrow">▼</span>
+                        </button>
+                        <div class="accordion-content">
+                            <p class="content-text">Подробная инструкция по настройке и подключению для iOS устройств.</p>
+                            <a href="https://teletype.in/@hiko1ay/U0jUDCV7inF#ywQ2" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                        </div>
+                    </div>
+
+                    <!-- Windows -->
+                    <div class="accordion-item" id="guide-windows">
+                        <button class="accordion-header" onclick="toggleAccordion(this)">
+                            <div class="header-left">
+                                <span class="icon">🪟</span> Windows
+                            </div>
+                            <span class="arrow">▼</span>
+                        </button>
+                        <div class="accordion-content">
+                            <p class="content-text">Подробная инструкция по настройке и подключению для Windows.</p>
+                            <a href="https://teletype.in/@hiko1ay/A0ZdIZPRHr9" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                        </div>
+                    </div>
+
+                    <!-- Mac -->
+                    <div class="accordion-item" id="guide-macos">
+                        <button class="accordion-header" onclick="toggleAccordion(this)">
+                            <div class="header-left">
+                                <span class="icon">💻</span> Mac
+                            </div>
+                            <span class="arrow">▼</span>
+                        </button>
+                        <div class="accordion-content">
+                            <p class="content-text">Подробная инструкция по настройке и подключению для Mac OS.</p>
+                            <a href="https://teletype.in/@hiko1ay/A0ZdIZPRHr9" target="_blank" class="btn-go" onclick="handleLinkClick(event)">Перейти</a>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -808,12 +900,12 @@
             <h2 style="color: var(--accent-cyan, #00e5ff); text-align: center; margin: 0 0 16px 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.5px;">ИНСТРУКЦИЯ</h2>
 
             <p style="color: #e0e0e0; margin-bottom: 16px; font-size: 14px; line-height: 1.5; text-align: center;">
-                Управляйте <b>Кибер-Червем</b> и обходите защиты! Заходите каждый день, чтобы получать приятные сюрпризы.
+                Управляйте <b>Кибер-Червем</b> и преодолевайте сетевые барьеры! Заходите каждый день, чтобы получать приятные сюрпризы.
             </p>
 
             <ul style="color: #fff; list-style: none; padding: 0; margin: 0 0 20px 0; line-height: 1.6; font-size: 14px;">
-                <li style="margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 10px; font-size: 16px;">🔷</span> <span><b>SNI-Пакет</b> — +10 очков.</span></li>
-                <li style="margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 10px; font-size: 16px;">❌</span> <span><b>DPI-Блокиратор</b> — фатально.</span></li>
+                <li style="margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 10px; font-size: 16px;">🔷</span> <span><b>Пакет данных</b> — +10 очков.</span></li>
+                <li style="margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 10px; font-size: 16px;">❌</span> <span><b>Сетевой фаервол</b> — фатально.</span></li>
                 <li style="margin-bottom: 8px; display: flex; align-items: center;"><span style="margin-right: 10px; font-size: 16px;">🎁</span> <span><b>Сундук</b> — случайный бонус.</span></li>
             </ul>
 
@@ -829,7 +921,7 @@
         </div>
     </div>
 
-    <script src="assets/js/app.js?v=16"></script>
-    <script src="assets/js/game.js?v=16"></script>
+    <script src="assets/js/app.js?v=17"></script>
+    <script src="assets/js/game.js?v=17"></script>
 </body>
 </html>
