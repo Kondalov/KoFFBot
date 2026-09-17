@@ -835,3 +835,206 @@ p {
     z-index: 10;
     border-radius: 12px;
 }
+
+/* === СВОРАЧИВАЕМЫЕ ОКНА (ИНСТРУКЦИИ И ВАЖНО) === */
+.collapsible-card {
+    transition: all 0.3s ease;
+}
+
+.card-collapse-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+}
+
+.card-toggle-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 50%;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-cyan);
+    cursor: pointer;
+    outline: none;
+    padding: 0;
+    flex-shrink: 0;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-toggle-btn:hover {
+    background: rgba(0, 229, 255, 0.15);
+    border-color: rgba(0, 229, 255, 0.4);
+    box-shadow: 0 0 15px rgba(0, 229, 255, 0.3);
+}
+
+.card-toggle-btn .toggle-svg {
+    width: 18px;
+    height: 18px;
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-toggle-btn.active .toggle-svg {
+    transform: rotate(180deg);
+}
+
+.collapsible-body {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease, margin-top 0.3s ease;
+}
+
+.collapsible-body.active {
+    max-height: 1500px;
+    opacity: 1;
+    overflow: visible;
+}
+
+/* === КНОПКИ ЮРИДИЧЕСКИХ ДОКУМЕНТОВ И ПОДДЕРЖКИ === */
+.btn-legal {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    text-decoration: none;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.25s ease;
+    cursor: pointer;
+}
+
+.btn-legal:hover {
+    background: rgba(0, 229, 255, 0.08);
+    border-color: rgba(0, 229, 255, 0.35);
+    box-shadow: 0 4px 20px rgba(0, 229, 255, 0.15);
+    transform: translateY(-2px);
+}
+
+.btn-legal:active {
+    transform: scale(0.98);
+}
+
+.btn-legal-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.btn-legal-icon {
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-legal-sub {
+    font-size: 11px;
+    color: var(--accent-cyan);
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+
+.btn-legal-arrow {
+    font-size: 16px;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+}
+
+.btn-legal:hover .btn-legal-arrow {
+    color: var(--accent-cyan);
+    transform: translate(2px, -2px);
+}
+
+.btn-legal-copy {
+    font-size: 16px;
+    opacity: 0.7;
+    transition: opacity 0.2s, transform 0.2s;
+}
+
+.btn-legal:hover .btn-legal-copy {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+/* === БЛОК ТАРИФОВ В ОКНЕ ВАЖНО === */
+.tariffs-block-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--accent-cyan);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tariffs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    padding: 14px 16px;
+}
+
+.tariff-item-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.tariff-item-row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.tariff-item-name {
+    color: #e2e8f0;
+    font-weight: 500;
+}
+
+.tariff-item-sub {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-left: 4px;
+}
+
+.tariff-item-price {
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+}
+
+.verification-badge-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 14px;
+}
+
+.verification-badge {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px dashed rgba(255, 255, 255, 0.15);
+    padding: 4px 14px;
+    border-radius: 8px;
+    letter-spacing: 0.5px;
+}
+
+.verification-badge b {
+    color: var(--accent-cyan);
+}

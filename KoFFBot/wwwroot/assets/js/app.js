@@ -111,6 +111,33 @@ function toggleGuide(headerEl) {
 }
 window.toggleGuide = toggleGuide;
 
+// === СВОРАЧИВАНИЕ/РАЗВОРАЧИВАНИЕ ОКОН (ИНСТРУКЦИИ И ВАЖНО) ===
+function toggleCardCollapse(contentId, triggerEl) {
+    try { window.tg.HapticFeedback.impactOccurred('light'); } catch (e) { }
+    const content = document.getElementById(contentId);
+    if (!content) return;
+
+    const card = content.closest('.collapsible-card') || (triggerEl ? triggerEl.closest('.collapsible-card') : null);
+    const toggleBtn = card ? card.querySelector('.card-toggle-btn') : null;
+
+    const isOpen = content.classList.contains('active');
+    if (isOpen) {
+        content.classList.remove('active');
+        if (toggleBtn) toggleBtn.classList.remove('active');
+    } else {
+        content.classList.add('active');
+        if (toggleBtn) toggleBtn.classList.add('active');
+    }
+}
+window.toggleCardCollapse = toggleCardCollapse;
+
+function copySupportEmail(e) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    try { window.tg.HapticFeedback.notificationOccurred('success'); } catch (e) { }
+    copyTextToClipboard("GeckoNetwork@proton.me", "✅ Email поддержки скопирован!");
+}
+window.copySupportEmail = copySupportEmail;
+
 function checkUnread() {
     if (window.userId === 0) return;
     fetch(`/api/webapp/inbox/unread?tgId=${window.userId}&t=${Date.now()}`, {
