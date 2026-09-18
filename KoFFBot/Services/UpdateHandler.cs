@@ -123,9 +123,25 @@ public class UpdateHandler : IUpdateHandler
 
             string webAppUrl = Environment.GetEnvironmentVariable("WEBAPP_URL")?.Trim() ?? "https://gecko.makeup";
             webAppUrl = $"{webAppUrl}?t={DateTime.UtcNow.Ticks}";
-            var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = webAppUrl }) } };
-            //var buttons = new List<InlineKeyboardButton[]> { new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = "https://3d34096cff96f0.lhr.life" }) } };
-            await botClient.SendMessage(chatId: message.Chat.Id, text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение.", replyMarkup: new InlineKeyboardMarkup(buttons), cancellationToken: cancellationToken);
+            var buttons = new List<InlineKeyboardButton[]>
+            {
+                new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = webAppUrl }) },
+                new[]
+                {
+                    InlineKeyboardButton.WithUrl("📜 Политика", "https://teletype.in/@hiko1ay/HHSPLjRwZ4Z"),
+                    InlineKeyboardButton.WithUrl("📋 Соглашение", "https://teletype.in/@hiko1ay/8BeLLK6zIr8")
+                },
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData("✉️ Поддержка", "show_support"),
+                    InlineKeyboardButton.WithCallbackData("🏷️ Тарифы", "show_tariffs")
+                }
+            };
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение, либо ознакомьтесь с информацией о сервисе и тарифах.",
+                replyMarkup: new InlineKeyboardMarkup(buttons),
+                cancellationToken: cancellationToken);
         }
 
         if (message.Text.StartsWith("/broadcast"))
