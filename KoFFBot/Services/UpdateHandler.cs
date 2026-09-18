@@ -139,7 +139,7 @@ public class UpdateHandler : IUpdateHandler
             };
             await botClient.SendMessage(
                 chatId: message.Chat.Id,
-                text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение, либо ознакомьтесь с информацией о сервисе и тарифах.",
+                text: "Добро пожаловать! ⚡️\nНажмите кнопку ниже, чтобы открыть приложение, либо ознакомьтесь с информацией о сервисе и тарифах.",
                 replyMarkup: new InlineKeyboardMarkup(buttons),
                 cancellationToken: cancellationToken);
         }
