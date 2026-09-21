@@ -125,7 +125,7 @@ public class UpdateHandler : IUpdateHandler
             webAppUrl = $"{webAppUrl}?t={DateTime.UtcNow.Ticks}";
             var buttons = new List<InlineKeyboardButton[]>
             {
-                new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть KoFFPanel", new WebAppInfo { Url = webAppUrl }) },
+                new[] { InlineKeyboardButton.WithWebApp("🌌 Открыть Gecko", new WebAppInfo { Url = webAppUrl }) },
                 new[]
                 {
                     InlineKeyboardButton.WithUrl("📜 Политика", "https://teletype.in/@hiko1ay/HHSPLjRwZ4Z"),
@@ -139,7 +139,7 @@ public class UpdateHandler : IUpdateHandler
             };
             await botClient.SendMessage(
                 chatId: message.Chat.Id,
-                text: "Добро пожаловать в KoFFPanel ⚡️\nНажмите кнопку ниже, чтобы открыть приложение, либо ознакомьтесь с информацией о сервисе и тарифах.",
+                text: "Добро пожаловать! ⚡️\nНажмите кнопку ниже, чтобы открыть приложение, либо ознакомьтесь с информацией о сервисе и тарифах.",
                 replyMarkup: new InlineKeyboardMarkup(buttons),
                 cancellationToken: cancellationToken);
         }
@@ -235,7 +235,7 @@ public class UpdateHandler : IUpdateHandler
             await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
             await botClient.SendMessage(
                 chatId: chatId,
-                text: "✉️ *Служба поддержки сервиса:*\nEmail: `GeckoNetwork@proton.me`\n\nТакже вы можете написать напрямую в чат поддержки через раздел «Инбокс» в KoFFPanel.",
+                text: "✉️ *Служба поддержки сервиса:*\nEmail: `GeckoNetwork@proton.me`\n\nТакже вы можете написать напрямую в чат поддержки через раздел «Инбокс» в Gecko.",
                 parseMode: ParseMode.Markdown,
                 cancellationToken: cancellationToken);
             return;
@@ -252,7 +252,7 @@ public class UpdateHandler : IUpdateHandler
                                  "• 🔋 Малый (+100⚡) — *50 ₽*\n" +
                                  "• ⚡ Средний (+300⚡) — *130 ₽*\n" +
                                  "• ☢️ Макс (+1000⚡) — *350 ₽*\n\n" +
-                                 "Оформить доступ можно внутри приложения KoFFPanel во вкладке «Тарифы».";
+                                 "Оформить доступ можно внутри приложения Gecko во вкладке «Тарифы».";
             await botClient.SendMessage(
                 chatId: chatId,
                 text: tariffsInfo,
